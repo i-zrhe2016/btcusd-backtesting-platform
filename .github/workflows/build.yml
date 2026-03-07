@@ -1,0 +1,56 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Disable Git autocrlf
+        shell: powershell
+        run: git config --global core.autocrlf input
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Generate SHA256
+        run: sha256sum build/BtcUsdReplay.exe > build/BtcUsdReplay.exe.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: btcusd-replay-windows-x64
+          path: |
+            build/BtcUsdReplay.exe
+            build/BtcUsdReplay.exe.sha256
+          if-no-files-found: error
+          compression-level: 0

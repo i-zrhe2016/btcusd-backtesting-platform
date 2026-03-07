@@ -60,6 +60,15 @@ cmake --build build --config Release
 build\Release\BtcUsdReplay.exe
 ```
 
+## GitHub Actions
+
+仓库已包含 Windows 编译工作流：
+
+- 文件：`.github/workflows/build.yml`
+- 触发：`push(main)`、`pull_request`、手动 `workflow_dispatch`
+- 环境：`windows-latest` + `MSYS2 MINGW64` + `CMake`
+- 产物：artifact `btcusd-replay-windows-x64`，包含 `BtcUsdReplay.exe` 和对应的 `SHA256`
+
 ## 用法
 
 直接运行：
