@@ -65,8 +65,12 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
-          gh release view latest --repo $env:REPOSITORY 2>$null
-          if ($LASTEXITCODE -eq 0) {
+          $previousErrorActionPreference = $ErrorActionPreference
+          $ErrorActionPreference = 'SilentlyContinue'
+          gh release view latest --repo $env:REPOSITORY *> $null
+          $latestExists = ($LASTEXITCODE -eq 0)
+          $ErrorActionPreference = $previousErrorActionPreference
+          if ($latestExists) {
             gh release upload latest build/BtcUsdReplay.exe build/BtcUsdReplay.exe.sha256 --clobber --repo $env:REPOSITORY
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             gh release edit latest --title "Latest build (main)" --notes "Automatically updated from main commit $env:COMMIT_SHA." --repo $env:REPOSITORY
