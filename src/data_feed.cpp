@@ -290,6 +290,31 @@ std::vector<Candle> LoadCandlesFromCsvText(const std::string& csv_text, std::str
     return LoadCandlesFromStream(input, error);
 }
 
+bool ParseDateUtc(const std::wstring& text, std::int64_t* timestamp) {
+    if (text.size() != 10 || text[4] != L'-' || text[7] != L'-') {
+        return false;
+    }
+    for (std::size_t index : {0u, 1u, 2u, 3u, 5u, 6u, 8u, 9u}) {
+        if (text[index] < L'0' || text[index] > L'9') {
+            return false;
+        }
+    }
+
+    const std::string narrow(text.begin(), text.end());
+    if (!ParseTimestamp(narrow, timestamp)) {
+        return false;
+    }
+
+    // get_time/mktime-style conversions can normalize invalid dates such as
+    // 2018-02-31. Compare the converted UTC date to reject those inputs.
+    const std::tm parsed = GmTime(*timestamp);
+    const int year = std::stoi(narrow.substr(0, 4));
+    const int month = std::stoi(narrow.substr(5, 2));
+    const int day = std::stoi(narrow.substr(8, 2));
+    return parsed.tm_year + 1900 == year && parsed.tm_mon + 1 == month &&
+        parsed.tm_mday == day;
+}
+
 std::vector<Candle> AggregateCandles(const std::vector<Candle>& input, Timeframe timeframe) {
     if (input.empty()) {
         return {};

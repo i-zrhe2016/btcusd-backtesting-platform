@@ -41,7 +41,6 @@ constexpr int kStochResizeHitHeight = 10;
 constexpr int kButtonWidth = 72;
 constexpr int kSmallButtonWidth = 36;
 constexpr int kTimeframeButtonWidth = 42;
-constexpr int kSliderWidth = 260;
 constexpr int kTrendButtonWidth = 70;
 constexpr int kSettingsButtonWidth = 86;
 constexpr int kHotkeysButtonWidth = 66;
@@ -52,6 +51,8 @@ enum ControlId : int {
     kOpenButton = 1001,
     kNewWindowButton,
     kStatusButton,
+    kDateInput,
+    kGoDateButton,
     kPlayPauseButton,
     kPrevButton,
     kNextButton,
@@ -69,7 +70,6 @@ enum ControlId : int {
     kTimeframeDButton,
     kTimeframeWButton,
     kTimeframeMButton,
-    kProgressSlider,
 };
 
 struct TrendPoint {
@@ -136,6 +136,9 @@ struct AppState {
     HWND open_button = nullptr;
     HWND new_window_button = nullptr;
     HWND status_button = nullptr;
+    HWND date_label = nullptr;
+    HWND date_input = nullptr;
+    HWND go_date_button = nullptr;
     HWND play_pause_button = nullptr;
     HWND prev_button = nullptr;
     HWND next_button = nullptr;
@@ -153,7 +156,6 @@ struct AppState {
     HWND tf_d_button = nullptr;
     HWND tf_w_button = nullptr;
     HWND tf_m_button = nullptr;
-    HWND progress_slider = nullptr;
     HFONT ui_font = nullptr;
     HFONT small_font = nullptr;
 
@@ -173,7 +175,6 @@ struct AppState {
     std::array<double, 4> speed_options{1.0, 2.0, 4.0, 8.0};
     int speed_index = 0;
     bool playing = false;
-    bool dragging_slider = false;
     bool chart_drag_active = false;
     POINT chart_drag_start{};
     std::size_t chart_drag_start_end = 0;
@@ -328,7 +329,9 @@ void ApplyFontToControls(HFONT font) {
                          g_app.stoch_parameters_button, g_app.hotkeys_button,
                          g_app.tf_1m_button, g_app.tf_15m_button, g_app.tf_30m_button, g_app.tf_1h_button,
                          g_app.tf_2h_button, g_app.tf_4h_button, g_app.tf_d_button,
-                         g_app.tf_w_button, g_app.tf_m_button, g_app.progress_slider}) {
+                         g_app.tf_w_button, g_app.tf_m_button, g_app.date_label,
+                         g_app.date_input,
+                         g_app.go_date_button}) {
         if (control != nullptr) {
             SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         }
@@ -506,13 +509,22 @@ void UpdateWindowTitle() {
     SetWindowTextW(g_app.window, title.c_str());
 }
 
-void UpdateTrackbarRange() {
+std::wstring DateOnlyText(std::int64_t timestamp) {
+    std::wstring text = FormatTimestamp(timestamp);
+    if (text.size() > 10) {
+        text.resize(10);
+    }
+    return text;
+}
+
+void UpdateDateInput() {
+    if (g_app.date_input == nullptr) {
+        return;
+    }
     const std::vector<Candle>& candles = CurrentCandles();
-    const int max_value = candles.empty() ? 0 : static_cast<int>(candles.size() - 1);
-    SendMessageW(g_app.progress_slider, TBM_SETRANGEMIN, TRUE, 0);
-    SendMessageW(g_app.progress_slider, TBM_SETRANGEMAX, TRUE, max_value);
-    SendMessageW(g_app.progress_slider, TBM_SETPAGESIZE, 0, 10);
-    SendMessageW(g_app.progress_slider, TBM_SETPOS, TRUE, static_cast<LPARAM>(g_app.playback_index));
+    if (!candles.empty() && g_app.playback_index < candles.size()) {
+        SetWindowTextW(g_app.date_input, DateOnlyText(candles[g_app.playback_index].timestamp).c_str());
+    }
 }
 
 void UpdatePlayPauseButton() {
@@ -567,7 +579,7 @@ void RefreshUiState() {
     UpdateSettingsButtons();
     UpdateStatusButton();
     UpdateTimeframeButtons();
-    UpdateTrackbarRange();
+    UpdateDateInput();
     UpdateWindowTitle();
     InvalidateRect(g_app.window, nullptr, FALSE);
 }
@@ -630,6 +642,54 @@ void SetTimeframe(Timeframe timeframe) {
     g_app.timeframe = timeframe;
     g_app.chart_follow_playback = true;
     RebuildStochSeries();
+    RefreshUiState();
+}
+
+void LocateDateFromInput() {
+    if (g_app.date_input == nullptr) {
+        return;
+    }
+
+    const int length = GetWindowTextLengthW(g_app.date_input);
+    std::wstring text(static_cast<std::size_t>(std::max(0, length)) + 1, L'\0');
+    if (length > 0) {
+        GetWindowTextW(g_app.date_input, text.data(), length + 1);
+        text.resize(static_cast<std::size_t>(length));
+    } else {
+        text.clear();
+    }
+
+    std::int64_t timestamp = 0;
+    if (text.empty() || !ParseDateUtc(text, &timestamp)) {
+        MessageBoxW(g_app.window, L"请输入有效日期，例如 2018-06-15。",
+            L"Go Date", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    const std::vector<Candle>& candles = CurrentCandles();
+    if (candles.empty()) {
+        return;
+    }
+    if (timestamp < candles.front().timestamp) {
+        MessageBoxW(g_app.window, L"输入日期早于当前数据范围。",
+            L"Go Date", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    const auto it = std::lower_bound(candles.begin(), candles.end(), timestamp,
+        [](const Candle& candle, std::int64_t value) {
+            return candle.timestamp < value;
+        });
+    if (it == candles.end()) {
+        MessageBoxW(g_app.window, L"输入日期晚于当前数据范围。",
+            L"Go Date", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    StopPlayback();
+    g_app.playback_timestamp = it->timestamp;
+    g_app.playback_index = static_cast<std::size_t>(it - candles.begin());
+    g_app.chart_follow_playback = true;
+    g_app.chart_end_index = g_app.playback_index;
     RefreshUiState();
 }
 
@@ -1147,7 +1207,6 @@ void LayoutControls() {
     const int button_width = ScaleByDpi(kButtonWidth);
     const int small_button_width = ScaleByDpi(kSmallButtonWidth);
     const int timeframe_button_width = ScaleByDpi(kTimeframeButtonWidth);
-    const int slider_width = ScaleByDpi(kSliderWidth);
     const int speed_width = ScaleByDpi(80);
     const int trend_width = ScaleByDpi(kTrendButtonWidth);
     const int stoch_width = ScaleByDpi(70);
@@ -1175,7 +1234,7 @@ void LayoutControls() {
     MoveWindow(g_app.hotkeys_button, x, y, hotkeys_width, control_height, TRUE);
     const int left_controls_end = x + hotkeys_width;
 
-    x = client.right - (slider_width + 9 * (timeframe_button_width + gap) + ScaleByDpi(8));
+    x = client.right - (9 * (timeframe_button_width + gap) + ScaleByDpi(8));
     x = std::max(x, left_controls_end + gap);
     for (HWND button : {g_app.tf_1m_button, g_app.tf_15m_button, g_app.tf_30m_button, g_app.tf_1h_button,
                         g_app.tf_2h_button, g_app.tf_4h_button, g_app.tf_d_button,
@@ -1183,12 +1242,18 @@ void LayoutControls() {
         MoveWindow(button, x, y, timeframe_button_width, control_height, TRUE);
         x += timeframe_button_width + gap;
     }
-    MoveWindow(g_app.progress_slider, x, y, slider_width, control_height, TRUE);
 
     MoveWindow(g_app.new_window_button, ScaleByDpi(8), secondary_y,
         ScaleByDpi(92), control_height, TRUE);
-    MoveWindow(g_app.status_button, ScaleByDpi(8) + ScaleByDpi(92) + gap, secondary_y,
+    int secondary_x = ScaleByDpi(8) + ScaleByDpi(92) + gap;
+    MoveWindow(g_app.status_button, secondary_x, secondary_y,
         ScaleByDpi(82), control_height, TRUE);
+    secondary_x += ScaleByDpi(82) + gap;
+    MoveWindow(g_app.date_label, secondary_x, secondary_y, ScaleByDpi(38), control_height, TRUE);
+    secondary_x += ScaleByDpi(38) + gap;
+    MoveWindow(g_app.date_input, secondary_x, secondary_y, ScaleByDpi(112), control_height, TRUE);
+    secondary_x += ScaleByDpi(112) + gap;
+    MoveWindow(g_app.go_date_button, secondary_x, secondary_y, ScaleByDpi(72), control_height, TRUE);
 }
 
 void CreateControls(HWND window) {
@@ -1201,6 +1266,15 @@ void CreateControls(HWND window) {
     g_app.status_button = CreateWindowExW(0, L"BUTTON", L"Status On",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, 0, 0, window, reinterpret_cast<HMENU>(kStatusButton), nullptr, nullptr);
+    g_app.date_label = CreateWindowExW(0, L"STATIC", L"Date",
+        WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
+        0, 0, 0, 0, window, nullptr, nullptr, nullptr);
+    g_app.date_input = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"2016-01-01",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+        0, 0, 0, 0, window, reinterpret_cast<HMENU>(kDateInput), nullptr, nullptr);
+    g_app.go_date_button = CreateWindowExW(0, L"BUTTON", L"Go Date",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+        0, 0, 0, 0, window, reinterpret_cast<HMENU>(kGoDateButton), nullptr, nullptr);
     g_app.play_pause_button = CreateWindowExW(0, L"BUTTON", L"Play",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, 0, 0, window, reinterpret_cast<HMENU>(kPlayPauseButton), nullptr, nullptr);
@@ -1252,10 +1326,6 @@ void CreateControls(HWND window) {
     g_app.tf_m_button = CreateWindowExW(0, L"BUTTON", L"M",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, 0, 0, window, reinterpret_cast<HMENU>(kTimeframeMButton), nullptr, nullptr);
-    g_app.progress_slider = CreateWindowExW(0, TRACKBAR_CLASSW, L"",
-        WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-        0, 0, 0, 0, window, reinterpret_cast<HMENU>(kProgressSlider), nullptr, nullptr);
-
     RecreateFonts();
     LayoutControls();
 }
@@ -1917,9 +1987,6 @@ void HandlePlaybackTick() {
         StopPlayback();
     }
 
-    if (!g_app.dragging_slider) {
-        SendMessageW(g_app.progress_slider, TBM_SETPOS, TRUE, static_cast<LPARAM>(g_app.playback_index));
-    }
     InvalidateChartAndStatus();
 }
 
@@ -1969,6 +2036,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
                     g_app.status_visible = !g_app.status_visible;
                     LayoutControls();
                     RefreshUiState();
+                    return 0;
+                case kGoDateButton:
+                    LocateDateFromInput();
                     return 0;
                 case kPlayPauseButton:
                     TogglePlayback();
@@ -2041,31 +2111,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
             }
             break;
         }
-
-        case WM_HSCROLL:
-            if (reinterpret_cast<HWND>(l_param) == g_app.progress_slider) {
-                const UINT code = LOWORD(w_param);
-                if (code == TB_THUMBTRACK || code == SB_THUMBTRACK) {
-                    g_app.dragging_slider = true;
-                }
-
-                const std::size_t next_index = static_cast<std::size_t>(
-                    SendMessageW(g_app.progress_slider, TBM_GETPOS, 0, 0));
-                const std::vector<Candle>& candles = CurrentCandles();
-                g_app.playback_index = next_index;
-                g_app.chart_follow_playback = true;
-                g_app.chart_end_index = next_index;
-                if (!candles.empty()) {
-                    g_app.playback_timestamp = candles[std::min(next_index, candles.size() - 1)].timestamp;
-                }
-                InvalidateChartAndStatus();
-
-                if (code == TB_ENDTRACK || code == SB_ENDSCROLL || code == TB_THUMBPOSITION) {
-                    g_app.dragging_slider = false;
-                }
-                return 0;
-            }
-            break;
 
         case WM_LBUTTONDOWN: {
             SetFocus(window);

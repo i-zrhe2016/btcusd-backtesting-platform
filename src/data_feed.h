@@ -29,4 +29,5 @@ std::vector<Candle> LoadCandlesFromCsv(const std::wstring& path, std::string* er
 std::vector<Candle> LoadCandlesFromCsvText(const std::string& csv_text, std::string* error);
 std::vector<Candle> AggregateCandles(const std::vector<Candle>& input, Timeframe timeframe);
 std::vector<Candle> GenerateDemoCandles();
+bool ParseDateUtc(const std::wstring& text, std::int64_t* timestamp);
 std::wstring FormatTimestamp(std::int64_t timestamp);
