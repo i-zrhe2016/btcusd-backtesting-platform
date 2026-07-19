@@ -222,10 +222,22 @@ std::wstring TimeframeLabel(Timeframe timeframe) {
     return L"?";
 }
 
-std::vector<Candle> LoadCandlesFromStream(std::istream& input, std::string* error) {
+std::vector<Candle> LoadCandlesFromStream(std::istream& input, std::string* error,
+    CandleLoadProgressCallback progress, void* progress_context) {
     std::vector<Candle> candles;
     std::string line;
     std::size_t line_number = 0;
+    std::size_t total_bytes = 0;
+    const std::streampos original_position = input.tellg();
+    input.seekg(0, std::ios::end);
+    const std::streampos end_position = input.tellg();
+    if (end_position >= 0) {
+        total_bytes = static_cast<std::size_t>(end_position);
+    }
+    input.clear();
+    input.seekg(0, std::ios::beg);
+    std::size_t last_reported_bytes = 0;
+    if (progress != nullptr) progress(0, total_bytes, progress_context);
     while (std::getline(input, line)) {
         ++line_number;
         if (line_number == 1 && line.size() >= 3 &&
@@ -260,7 +272,22 @@ std::vector<Candle> LoadCandlesFromStream(std::istream& input, std::string* erro
         }
 
         candles.push_back(candle);
+
+        if (progress != nullptr && (line_number % 4096 == 0 || input.eof())) {
+            const std::streampos position = input.tellg();
+            const std::size_t processed_bytes = position >= 0
+                ? static_cast<std::size_t>(position)
+                : total_bytes;
+            const std::size_t minimum_step = total_bytes > 0
+                ? std::max<std::size_t>(1, total_bytes / 400) : 1;
+            if (processed_bytes >= last_reported_bytes + minimum_step || input.eof()) {
+                progress(processed_bytes, total_bytes, progress_context);
+                last_reported_bytes = processed_bytes;
+            }
+        }
     }
+
+    if (progress != nullptr) progress(total_bytes, total_bytes, progress_context);
 
     std::sort(candles.begin(), candles.end(), [](const Candle& left, const Candle& right) {
         return left.timestamp < right.timestamp;
@@ -270,10 +297,15 @@ std::vector<Candle> LoadCandlesFromStream(std::istream& input, std::string* erro
         *error = "CSV parsing produced no candles. Expected columns: timestamp,open,high,low,close";
     }
 
+    if (original_position != std::streampos(-1)) {
+        input.clear();
+        input.seekg(original_position);
+    }
     return candles;
 }
 
-std::vector<Candle> LoadCandlesFromCsv(const std::wstring& path, std::string* error) {
+std::vector<Candle> LoadCandlesFromCsv(const std::wstring& path, std::string* error,
+    CandleLoadProgressCallback progress, void* progress_context) {
     std::ifstream input{std::filesystem::path(path)};
     if (!input.is_open()) {
         if (error != nullptr) {
@@ -282,12 +314,13 @@ std::vector<Candle> LoadCandlesFromCsv(const std::wstring& path, std::string* er
         return {};
     }
 
-    return LoadCandlesFromStream(input, error);
+    return LoadCandlesFromStream(input, error, progress, progress_context);
 }
 
-std::vector<Candle> LoadCandlesFromCsvText(const std::string& csv_text, std::string* error) {
+std::vector<Candle> LoadCandlesFromCsvText(const std::string& csv_text, std::string* error,
+    CandleLoadProgressCallback progress, void* progress_context) {
     std::istringstream input(csv_text);
-    return LoadCandlesFromStream(input, error);
+    return LoadCandlesFromStream(input, error, progress, progress_context);
 }
 
 bool ParseDateUtc(const std::wstring& text, std::int64_t* timestamp) {

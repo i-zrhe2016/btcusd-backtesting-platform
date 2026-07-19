@@ -16,7 +16,9 @@ from pathlib import Path
 API_URL = "https://api.exchange.coinbase.com/products/BTC-USD/candles"
 OUTPUT_PATH = Path(__file__).resolve().parents[1] / "src" / "embedded_btcusd_data.h"
 START_UTC = dt.datetime(2016, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-END_UTC = dt.datetime(2019, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+# The end is exclusive: this includes every minute through 2026-07-19
+# 23:59 UTC while keeping the generated coverage metadata unambiguous.
+END_UTC = dt.datetime(2026, 7, 20, 0, 0, 0, tzinfo=dt.timezone.utc)
 GRANULARITY_SECONDS = 60
 MAX_CANDLES_PER_REQUEST = 300
 REQUEST_PAUSE_SECONDS = 0.08

@@ -224,6 +224,9 @@ struct AppState {
     bool stoch_resize_active = false;
     bool status_visible = true;
     double chart_zoom = 1.0;
+    bool data_loading = false;
+    int data_load_progress = 0;
+    std::wstring data_load_label;
     std::array<StochParameters, 9> stoch_parameters{};
     ShortcutBindings shortcuts;
     StochSeries stoch_series;
@@ -633,6 +636,44 @@ void UpdateButtonText(HWND button, const std::wstring& text) {
     SetWindowTextW(button, text.c_str());
 }
 
+void BeginDataLoad(const std::wstring& label) {
+    g_app.data_loading = true;
+    g_app.data_load_progress = 0;
+    g_app.data_load_label = label;
+    if (g_app.window != nullptr) {
+        InvalidateRect(g_app.window, nullptr, FALSE);
+        UpdateWindow(g_app.window);
+    }
+}
+
+void ReportDataLoadProgress(std::size_t processed_bytes, std::size_t total_bytes,
+    void*) {
+    const int percent = total_bytes == 0
+        ? 5
+        : std::clamp(static_cast<int>((processed_bytes * 85) / total_bytes), 0, 85);
+    g_app.data_load_progress = std::max(g_app.data_load_progress, percent);
+    if (g_app.window != nullptr) {
+        InvalidateRect(g_app.window, nullptr, FALSE);
+        UpdateWindow(g_app.window);
+    }
+}
+
+void ReportDataLoadStage(int percent, const std::wstring& label) {
+    g_app.data_load_progress = std::clamp(percent, 0, 100);
+    g_app.data_load_label = label;
+    if (g_app.window != nullptr) {
+        InvalidateRect(g_app.window, nullptr, FALSE);
+        UpdateWindow(g_app.window);
+    }
+}
+
+void EndDataLoad() {
+    if (!g_app.data_loading) return;
+    ReportDataLoadStage(100, L"K 线加载完成");
+    g_app.data_loading = false;
+    if (g_app.window != nullptr) InvalidateRect(g_app.window, nullptr, FALSE);
+}
+
 void UpdateWindowTitle() {
     std::wstring title = L"BTCUSD Replay - " + g_app.current_file;
     SetWindowTextW(g_app.window, title.c_str());
@@ -821,18 +862,23 @@ std::wstring AppRelativePath(const std::wstring& relative_path) {
 }
 
 std::vector<Candle> LoadProjectSource(const ProjectRecord& project, std::wstring* error) {
+    BeginDataLoad(L"正在加载项目 K 线：" + project.name);
     std::string csv_error;
     std::vector<Candle> candles;
     if (project.builtin_source) {
-        candles = LoadCandlesFromCsvText(embedded_btcusd_data::kCsv, &csv_error);
+        candles = LoadCandlesFromCsvText(embedded_btcusd_data::kCsv, &csv_error,
+            ReportDataLoadProgress, nullptr);
     } else {
-        candles = LoadCandlesFromCsv(AppRelativePath(project.source_relative_path), &csv_error);
+        candles = LoadCandlesFromCsv(AppRelativePath(project.source_relative_path), &csv_error,
+            ReportDataLoadProgress, nullptr);
     }
     if (candles.empty()) {
         if (error != nullptr) *error = std::wstring(csv_error.begin(), csv_error.end());
+        EndDataLoad();
         return {};
     }
 
+    ReportDataLoadStage(90, L"正在整理项目日期范围");
     std::vector<Candle> filtered;
     filtered.reserve(candles.size());
     for (const Candle& candle : candles) {
@@ -843,8 +889,10 @@ std::vector<Candle> LoadProjectSource(const ProjectRecord& project, std::wstring
     }
     if (filtered.empty()) {
         if (error != nullptr) *error = L"项目日期范围内没有可用 K 线。";
+        EndDataLoad();
         return {};
     }
+    EndDataLoad();
     return filtered;
 }
 
@@ -1059,14 +1107,19 @@ void ShowLoadError(const std::string& error) {
 }
 
 void LoadDefaultDataset() {
+    BeginDataLoad(L"正在加载内置 BTCUSD K 线");
     std::string error;
-    std::vector<Candle> candles = LoadCandlesFromCsvText(embedded_btcusd_data::kCsv, &error);
+    std::vector<Candle> candles = LoadCandlesFromCsvText(embedded_btcusd_data::kCsv, &error,
+        ReportDataLoadProgress, nullptr);
     if (!candles.empty()) {
         LoadBaseCandles(std::move(candles), BuildEmbeddedDataLabel());
+        ReportDataLoadStage(95, L"正在建立多周期 K 线");
+        EndDataLoad();
         return;
     }
 
     LoadBaseCandles(GenerateDemoCandles(), L"Built-in demo data");
+    EndDataLoad();
     if (!error.empty()) {
         ShowLoadError(error);
     }
@@ -1166,13 +1219,18 @@ void OpenCsvDialog() {
     }
 
     std::string error;
-    std::vector<Candle> candles = LoadCandlesFromCsv(file_path, &error);
+    BeginDataLoad(L"正在加载 CSV K 线");
+    std::vector<Candle> candles = LoadCandlesFromCsv(file_path, &error,
+        ReportDataLoadProgress, nullptr);
     if (candles.empty()) {
+        EndDataLoad();
         ShowLoadError(error);
         return;
     }
 
     LoadBaseCandles(std::move(candles), file_path);
+    ReportDataLoadStage(95, L"正在建立多周期 K 线");
+    EndDataLoad();
 }
 
 void OpenNewWindow() {
@@ -1851,6 +1909,43 @@ void DrawTextInRect(HDC dc, const RECT& rect, const std::wstring& text, COLORREF
     }
 }
 
+void DrawDataLoadOverlay(HDC dc, const RECT& client) {
+    HBRUSH background = CreateSolidBrush(RGB(0, 0, 0));
+    FillRect(dc, &client, background);
+    DeleteObject(background);
+
+    const int width = std::min(700, std::max(360, static_cast<int>(client.right - 80)));
+    const int left = (client.right - width) / 2;
+    const int top = std::max(static_cast<int>(ScaleByDpi(kTopBarHeight + 30)),
+        (static_cast<int>(client.bottom) - static_cast<int>(ScaleByDpi(170))) / 2);
+    RECT title_rect{left, top, left + width, top + ScaleByDpi(30)};
+    DrawTextInRect(dc, title_rect, L"正在加载 K 线数据", RGB(245, 245, 245), g_app.ui_font,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    RECT label_rect{left, top + ScaleByDpi(38), left + width, top + ScaleByDpi(64)};
+    DrawTextInRect(dc, label_rect, g_app.data_load_label, RGB(180, 180, 188), g_app.small_font,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+    const int bar_top = top + ScaleByDpi(82);
+    RECT bar{left, bar_top, left + width, bar_top + ScaleByDpi(22)};
+    HBRUSH bar_background = CreateSolidBrush(RGB(36, 36, 44));
+    FillRect(dc, &bar, bar_background);
+    DeleteObject(bar_background);
+
+    const int progress = std::clamp(g_app.data_load_progress, 0, 100);
+    RECT filled = bar;
+    filled.right = filled.left + MulDiv(width, progress, 100);
+    if (filled.right > filled.left) {
+        HBRUSH bar_foreground = CreateSolidBrush(RGB(52, 150, 255));
+        FillRect(dc, &filled, bar_foreground);
+        DeleteObject(bar_foreground);
+    }
+
+    RECT percent_rect{left, bar_top + ScaleByDpi(30), left + width, bar_top + ScaleByDpi(54)};
+    DrawTextInRect(dc, percent_rect, std::to_wstring(progress) + L"%",
+        RGB(220, 220, 228), g_app.ui_font, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
 int PriceToY(double price, double min_price, double max_price, const RECT& chart_rect) {
     if (max_price - min_price < 0.0001) {
         return (chart_rect.top + chart_rect.bottom) / 2;
@@ -2321,6 +2416,10 @@ void DrawScene(HDC window_dc) {
         };
         DrawTextInRect(memory_dc, status_text, BuildStatusLine(), RGB(220, 220, 220), g_app.ui_font,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    }
+
+    if (g_app.data_loading) {
+        DrawDataLoadOverlay(memory_dc, client);
     }
 
     BitBlt(window_dc, 0, 0, client.right, client.bottom, memory_dc, 0, 0, SRCCOPY);

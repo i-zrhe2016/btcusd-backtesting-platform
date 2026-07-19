@@ -24,9 +24,14 @@ struct Candle {
     double close = 0.0;
 };
 
+using CandleLoadProgressCallback = void(*)(std::size_t processed_bytes,
+    std::size_t total_bytes, void* context);
+
 std::wstring TimeframeLabel(Timeframe timeframe);
-std::vector<Candle> LoadCandlesFromCsv(const std::wstring& path, std::string* error);
-std::vector<Candle> LoadCandlesFromCsvText(const std::string& csv_text, std::string* error);
+std::vector<Candle> LoadCandlesFromCsv(const std::wstring& path, std::string* error,
+    CandleLoadProgressCallback progress = nullptr, void* progress_context = nullptr);
+std::vector<Candle> LoadCandlesFromCsvText(const std::string& csv_text, std::string* error,
+    CandleLoadProgressCallback progress = nullptr, void* progress_context = nullptr);
 std::vector<Candle> AggregateCandles(const std::vector<Candle>& input, Timeframe timeframe);
 std::vector<Candle> GenerateDemoCandles();
 bool ParseDateUtc(const std::wstring& text, std::int64_t* timestamp);
