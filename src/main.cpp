@@ -82,6 +82,12 @@ struct Trendline {
     TrendPoint end;
 };
 
+struct TradeMarker {
+    std::int64_t timestamp = 0;
+    double price = 0.0;
+    bool buy = true;
+};
+
 struct ChartView {
     RECT rect{};
     const std::vector<Candle>* candles = nullptr;
@@ -103,6 +109,8 @@ enum class ShortcutAction : std::size_t {
     Speed,
     Trendline,
     StochVisibility,
+    Buy,
+    Sell,
     M1,
     M15,
     M30,
@@ -114,11 +122,11 @@ enum class ShortcutAction : std::size_t {
     MN1,
 };
 
-constexpr std::size_t kShortcutCount = 15;
+constexpr std::size_t kShortcutCount = 17;
 
 struct ShortcutBindings {
     std::array<UINT, kShortcutCount> keys{
-        VK_SPACE, VK_LEFT, VK_RIGHT, 'S', 'T', 'O', '6',
+        VK_SPACE, VK_LEFT, VK_RIGHT, 'S', 'T', 'O', 'B', 'V', '6',
         '5', '3', '1', '2', '4', 'D', 'W', 'M'
     };
 };
@@ -177,6 +185,7 @@ struct AppState {
     ULONGLONG last_tick_ms = 0;
     UINT dpi = kDefaultDpi;
     std::vector<Trendline> trendlines;
+    std::vector<TradeMarker> trade_markers;
     bool trendline_mode = false;
     bool trendline_draft_active = false;
     TrendPoint trendline_draft_start;
@@ -670,6 +679,17 @@ void CycleStochVisibility() {
     RefreshUiState();
 }
 
+void PlaceTradeMarker(bool buy) {
+    const std::vector<Candle>& candles = CurrentCandles();
+    if (candles.empty() || g_app.playback_index >= candles.size()) {
+        return;
+    }
+
+    const Candle& candle = candles[g_app.playback_index];
+    g_app.trade_markers.push_back(TradeMarker{candle.timestamp, candle.close, buy});
+    RefreshUiState();
+}
+
 void AdjustChartZoom(int wheel_delta) {
     if (wheel_delta == 0) {
         return;
@@ -696,6 +716,7 @@ void LoadBaseCandles(std::vector<Candle> candles, const std::wstring& name) {
     g_app.current_file = name;
     RebuildStochSeries();
     g_app.trendlines.clear();
+    g_app.trade_markers.clear();
     g_app.trendline_mode = false;
     g_app.trendline_draft_active = false;
     RefreshUiState();
@@ -781,7 +802,8 @@ struct SettingsDialogContext {
 const std::array<const wchar_t*, kShortcutCount>& ShortcutLabels() {
     static const std::array<const wchar_t*, kShortcutCount> labels{
         L"Play / Pause", L"Previous candle", L"Next candle", L"Change speed",
-        L"Trendline mode", L"Show / hide Stoch", L"1m timeframe", L"15m timeframe", L"30m timeframe",
+        L"Trendline mode", L"Show / hide Stoch", L"Buy marker", L"Sell marker",
+        L"1m timeframe", L"15m timeframe", L"30m timeframe",
         L"1h timeframe", L"2h timeframe", L"4h timeframe", L"D timeframe",
         L"W timeframe", L"M timeframe"
     };
@@ -881,8 +903,9 @@ void CreateSettingsDialogControls(SettingsDialogContext* context) {
                 context->window, ShortcutText(g_app.shortcuts.keys[index]).c_str(),
                 kSettingsFirstEdit + static_cast<int>(index), 250, y, 90, 23);
         }
+        const int shortcut_note_y = 47 + static_cast<int>(kShortcutCount) * 27 + 6;
         CreateSettingsStatic(context->window, L"修改后点击应用；按键冲突时以设置表中靠后的动作为准。",
-            18, 430, 520, 22);
+            18, shortcut_note_y, 520, 22);
     } else {
         std::wstring title = L"当前周期：" + TimeframeLabel(g_app.timeframe) +
             L"（每组参数为 length，K/D 平滑长度按 Pine 规则自动计算）";
@@ -901,11 +924,11 @@ void CreateSettingsDialogControls(SettingsDialogContext* context) {
 
     HWND ok = CreateWindowExW(0, L"BUTTON", L"Apply",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-        context->shortcuts ? 350 : 250, context->shortcuts ? 462 : 282, 86, 28,
+        context->shortcuts ? 350 : 250, context->shortcuts ? 550 : 282, 86, 28,
         context->window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSettingsOk)), nullptr, nullptr);
     HWND cancel = CreateWindowExW(0, L"BUTTON", L"Cancel",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        context->shortcuts ? 446 : 346, context->shortcuts ? 462 : 282, 86, 28,
+        context->shortcuts ? 446 : 346, context->shortcuts ? 550 : 282, 86, 28,
         context->window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSettingsCancel)), nullptr, nullptr);
     SetControlFont(ok);
     SetControlFont(cancel);
@@ -1019,7 +1042,7 @@ void ShowSettingsDialog(bool shortcuts) {
     context.owner = g_app.window;
     context.shortcuts = shortcuts;
     const int width = ScaleByDpi(570);
-    const int height = ScaleByDpi(shortcuts ? 525 : 350);
+    const int height = ScaleByDpi(shortcuts ? 610 : 350);
     HWND dialog = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
         class_name,
@@ -1084,6 +1107,12 @@ bool HandleConfiguredShortcut(UINT key) {
                 return true;
             case ShortcutAction::StochVisibility:
                 CycleStochVisibility();
+                return true;
+            case ShortcutAction::Buy:
+                PlaceTradeMarker(true);
+                return true;
+            case ShortcutAction::Sell:
+                PlaceTradeMarker(false);
                 return true;
             case ShortcutAction::M1:
                 StopPlayback(); SetTimeframe(Timeframe::M1); return true;
@@ -1337,6 +1366,16 @@ std::wstring BuildStatusLine() {
            << L"  |  Zoom " << g_app.chart_zoom << L"x"
            << L"  |  Stoch " << (g_app.stoch_visible ? L"3" : L"OFF")
            << L"  Lines " << g_app.trendlines.size();
+    std::size_t buy_count = 0;
+    std::size_t sell_count = 0;
+    for (const TradeMarker& marker : g_app.trade_markers) {
+        if (marker.buy) {
+            ++buy_count;
+        } else {
+            ++sell_count;
+        }
+    }
+    stream << L"  |  Buy " << buy_count << L"  Sell " << sell_count;
     const ChartView view = BuildCurrentChartView();
     if (view.valid && view.end >= 0 && view.end < static_cast<int>(candles.size())) {
         stream << L"  |  View " << FormatTimestamp(candles[static_cast<std::size_t>(view.end)].timestamp);
@@ -1515,6 +1554,52 @@ void DrawTrendline(HDC dc, const ChartView& view, const Trendline& trendline, CO
     DeleteObject(pen);
 }
 
+void DrawTradeMarker(HDC dc, const ChartView& view, const TradeMarker& marker) {
+    if (!view.valid || view.candles == nullptr) {
+        return;
+    }
+
+    const int x = TimestampToX(view, marker.timestamp);
+    const int price_y = PriceToY(marker.price, view.min_price, view.max_price, view.rect);
+    const int length = ScaleByDpi(18);
+    const int half_width = ScaleByDpi(6);
+    const COLORREF color = marker.buy ? RGB(0, 210, 105) : RGB(245, 80, 80);
+    const int tip_y = price_y;
+    const int base_y = marker.buy ? price_y + length : price_y - length;
+
+    HPEN pen = CreatePen(PS_SOLID, std::max(1, ScaleByDpi(2)), color);
+    HBRUSH brush = CreateSolidBrush(color);
+    HGDIOBJ old_pen = SelectObject(dc, pen);
+    HGDIOBJ old_brush = SelectObject(dc, brush);
+    MoveToEx(dc, x, base_y, nullptr);
+    LineTo(dc, x, marker.buy ? tip_y + half_width : tip_y - half_width);
+    const POINT arrow[] = {
+        {x, tip_y},
+        {x - half_width, marker.buy ? tip_y + half_width : tip_y - half_width},
+        {x + half_width, marker.buy ? tip_y + half_width : tip_y - half_width},
+    };
+    Polygon(dc, arrow, 3);
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+
+    RECT label_rect{
+        x - ScaleByDpi(24),
+        marker.buy ? base_y + ScaleByDpi(1) : base_y - ScaleByDpi(17),
+        x + ScaleByDpi(24),
+        marker.buy ? base_y + ScaleByDpi(17) : base_y - ScaleByDpi(1)
+    };
+    DrawTextInRect(dc, label_rect, marker.buy ? L"BUY" : L"SELL", color,
+        g_app.small_font, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+void DrawTradeMarkers(HDC dc, const ChartView& view) {
+    for (const TradeMarker& marker : g_app.trade_markers) {
+        DrawTradeMarker(dc, view, marker);
+    }
+}
+
 void DrawCandles(HDC dc, const RECT& chart_rect) {
     const ChartView view = BuildCurrentChartView();
     if (!view.valid || view.candles == nullptr) {
@@ -1591,6 +1676,8 @@ void DrawCandles(HDC dc, const RECT& chart_rect) {
                 g_app.small_font, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         }
     }
+
+    DrawTradeMarkers(dc, view);
 
     for (const Trendline& trendline : g_app.trendlines) {
         DrawTrendline(dc, view, trendline, RGB(210, 210, 210), std::max(1, ScaleByDpi(2)));

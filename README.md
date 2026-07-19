@@ -107,6 +107,7 @@ build\Release\BtcUsdReplay.exe
 - `Stoch 3`：显示或隐藏随机指标副图，指标固定显示前三组
 - `Stoch Params`：修改当前周期的五组 `length` 参数，点击 `Apply` 后立即重算；参数按周期分别保存
 - `Hotkeys`：修改播放、前后单步、倍速、趋势线、随机指标显示和全部周期切换快捷键
+- Buy / Sell 快捷键：在当前回放 K 线收盘价记录并绘制 Buy / Sell 标记，默认分别为 `B` / `V`
 - `Status On / Status Off`：显示或隐藏底部整体状态栏
 - 拖动价格图和指标图之间的横向分隔条：调整指标副图高度
 - 进度条：拖动跳转
@@ -119,6 +120,8 @@ build\Release\BtcUsdReplay.exe
 - `S`：切换倍速
 - `T`：切换趋势线绘制模式
 - `O`：显示或隐藏随机指标
+- `B`：记录 Buy 标记
+- `V`：记录 Sell 标记
 
 ## Stoch 指标
 
