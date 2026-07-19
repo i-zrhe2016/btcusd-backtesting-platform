@@ -79,6 +79,7 @@ build\Release\BtcUsdReplay.exe
 - 环境：`windows-latest` + `MSYS2 MINGW64` + `CMake`
 - 产物：artifact `btcusd-replay-windows-x64`，包含 `BtcUsdReplay.exe` 和对应的 `SHA256`
 - Release：推送如 `v1.0.0` 这样的 tag 后，会自动创建或更新同名 GitHub Release，并上传 `exe` 与 `SHA256`
+- Latest：每次推送 `main` 并成功构建后，会自动更新 `latest` Release，可下载最新 exe 与 `SHA256`
 
 ## 用法
 
