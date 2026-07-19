@@ -166,6 +166,11 @@ struct AppState {
     int speed_index = 0;
     bool playing = false;
     bool dragging_slider = false;
+    bool chart_drag_active = false;
+    POINT chart_drag_start{};
+    std::size_t chart_drag_start_end = 0;
+    std::size_t chart_end_index = 0;
+    bool chart_follow_playback = true;
     std::size_t playback_index = 0;
     std::int64_t playback_timestamp = 0;
     double playback_accumulator = 0.0;
@@ -439,7 +444,10 @@ ChartView BuildCurrentChartView() {
         min_padding_slots,
         max_padding_slots);
     view.data_visible_count = std::max(1, view.visible_count - view.right_padding_slots);
-    view.end = static_cast<int>(g_app.playback_index);
+    const std::size_t requested_end = g_app.chart_follow_playback
+        ? g_app.playback_index
+        : g_app.chart_end_index;
+    view.end = static_cast<int>(std::min(requested_end, candles.size() - 1));
     view.start = std::max(0, view.end - view.data_visible_count + 1);
     if (view.end < view.start) {
         return view;
@@ -540,6 +548,9 @@ void UpdateTimeframeButtons() {
 void RefreshUiState() {
     ClampPlaybackTimestamp();
     SyncPlaybackIndexToTimestamp();
+    if (g_app.chart_follow_playback) {
+        g_app.chart_end_index = g_app.playback_index;
+    }
     UpdatePlayPauseButton();
     UpdateSpeedButton();
     UpdateTrendlineButton();
@@ -608,6 +619,7 @@ void StopPlayback() {
 
 void SetTimeframe(Timeframe timeframe) {
     g_app.timeframe = timeframe;
+    g_app.chart_follow_playback = true;
     RebuildStochSeries();
     RefreshUiState();
 }
@@ -623,6 +635,8 @@ void StepPlayback(int delta) {
     const int next = std::clamp(current + delta, 0, last);
     g_app.playback_timestamp = candles[static_cast<std::size_t>(next)].timestamp;
     g_app.playback_index = static_cast<std::size_t>(next);
+    g_app.chart_follow_playback = true;
+    g_app.chart_end_index = g_app.playback_index;
     RefreshUiState();
 }
 
@@ -638,6 +652,8 @@ void TogglePlayback() {
         g_app.playback_index = 0;
     }
 
+    g_app.chart_follow_playback = true;
+    g_app.chart_end_index = g_app.playback_index;
     g_app.playing = !g_app.playing;
     g_app.playback_accumulator = 0.0;
     g_app.last_tick_ms = GetTickCount64();
@@ -672,6 +688,8 @@ void LoadBaseCandles(std::vector<Candle> candles, const std::wstring& name) {
     RebuildAggregates();
     g_app.timeframe = Timeframe::M1;
     g_app.playback_index = 0;
+    g_app.chart_end_index = 0;
+    g_app.chart_follow_playback = true;
     g_app.playback_timestamp = g_app.base_candles.empty() ? 0 : g_app.base_candles.front().timestamp;
     g_app.playback_accumulator = 0.0;
     g_app.playing = false;
@@ -1308,26 +1326,29 @@ std::wstring BuildStatusLine() {
     std::wostringstream stream;
     stream.setf(std::ios::fixed);
     stream.precision(2);
-    stream << TimeframeLabel(g_app.timeframe)
-           << L"  "
-           << FormatTimestamp(candle.timestamp)
-           << L"  O:" << candle.open
-           << L" H:" << candle.high
-           << L" L:" << candle.low
-           << L" C:" << candle.close
-           << L"  Speed:x" << static_cast<int>(g_app.speed_options[g_app.speed_index])
-           << L"  Stoch:" << (g_app.stoch_visible ? L"3" : L"OFF")
-           << L"  Zoom:" << g_app.chart_zoom << L"x"
-           << L"  Lines:" << g_app.trendlines.size()
-           << L"  Trend:" << (g_app.trendline_mode ? L"ON" : L"OFF")
-           << L"  "
-           << (g_app.playing ? L"Playing" : L"Paused");
+    stream << L"  " << TimeframeLabel(g_app.timeframe)
+           << L"  |  Playback " << FormatTimestamp(candle.timestamp)
+           << L"  |  O " << candle.open
+           << L"  H " << candle.high
+           << L"  L " << candle.low
+           << L"  C " << candle.close
+           << L"  |  " << (g_app.playing ? L"Playing" : L"Paused")
+           << L"  x" << static_cast<int>(g_app.speed_options[g_app.speed_index])
+           << L"  |  Zoom " << g_app.chart_zoom << L"x"
+           << L"  |  Stoch " << (g_app.stoch_visible ? L"3" : L"OFF")
+           << L"  Lines " << g_app.trendlines.size();
+    const ChartView view = BuildCurrentChartView();
+    if (view.valid && view.end >= 0 && view.end < static_cast<int>(candles.size())) {
+        stream << L"  |  View " << FormatTimestamp(candles[static_cast<std::size_t>(view.end)].timestamp);
+    }
     if (g_app.trendline_draft_active) {
-        stream << L"  Trendline: click second point";
+        stream << L"  |  Trendline: click second point";
     } else if (g_app.trendline_mode) {
-        stream << L"  LClick: trendline  Del: undo";
+        stream << L"  |  LClick draw  Del undo";
+    } else if (g_app.chart_drag_active || !g_app.chart_follow_playback) {
+        stream << L"  |  Drag: pan view";
     } else {
-        stream << L"  Trend/T: draw line  Del: undo";
+        stream << L"  |  Drag pan  Wheel zoom";
     }
     return stream.str();
 }
@@ -1802,6 +1823,9 @@ void HandlePlaybackTick() {
     const std::size_t next_index = std::min(current_index + static_cast<std::size_t>(advance), candles.size() - 1);
     g_app.playback_timestamp = candles[next_index].timestamp;
     g_app.playback_index = next_index;
+    if (g_app.chart_follow_playback) {
+        g_app.chart_end_index = next_index;
+    }
     if (g_app.playback_index >= candles.size() - 1) {
         StopPlayback();
     }
@@ -1942,6 +1966,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
                     SendMessageW(g_app.progress_slider, TBM_GETPOS, 0, 0));
                 const std::vector<Candle>& candles = CurrentCandles();
                 g_app.playback_index = next_index;
+                g_app.chart_follow_playback = true;
+                g_app.chart_end_index = next_index;
                 if (!candles.empty()) {
                     g_app.playback_timestamp = candles[std::min(next_index, candles.size() - 1)].timestamp;
                 }
@@ -1973,12 +1999,35 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
                 }
                 return 0;
             }
+            if (view.valid && PointInRectStrict(view.rect, point)) {
+                g_app.chart_drag_active = true;
+                g_app.chart_drag_start = point;
+                g_app.chart_drag_start_end = static_cast<std::size_t>(view.end);
+                g_app.chart_follow_playback = false;
+                SetCapture(window);
+                return 0;
+            }
             break;
         }
 
         case WM_MOUSEMOVE:
             if (g_app.stoch_resize_active) {
                 ResizeStochPanelForY(GET_Y_LPARAM(l_param));
+                return 0;
+            }
+            if (g_app.chart_drag_active) {
+                const ChartView view = BuildCurrentChartView();
+                const std::vector<Candle>& candles = CurrentCandles();
+                if (view.valid && !candles.empty()) {
+                    const int delta_x = GET_X_LPARAM(l_param) - g_app.chart_drag_start.x;
+                    const int delta_slots = static_cast<int>(std::lround(
+                        static_cast<double>(delta_x) / std::max(view.step, 1.0)));
+                    const int last = static_cast<int>(candles.size() - 1);
+                    const int next_end = std::clamp(
+                        static_cast<int>(g_app.chart_drag_start_end) - delta_slots, 0, last);
+                    g_app.chart_end_index = static_cast<std::size_t>(next_end);
+                    InvalidateChartAndStatus();
+                }
                 return 0;
             }
             if (g_app.trendline_draft_active) {
@@ -1998,16 +2047,26 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
                 ReleaseCapture();
                 return 0;
             }
+            if (g_app.chart_drag_active) {
+                g_app.chart_drag_active = false;
+                ReleaseCapture();
+                return 0;
+            }
             break;
 
         case WM_SETCURSOR:
-            if (g_app.stoch_resize_active ||
+            if (g_app.stoch_resize_active || g_app.chart_drag_active ||
                 (LOWORD(l_param) == HTCLIENT && !g_app.trendline_draft_active)) {
                 POINT point{};
                 GetCursorPos(&point);
                 ScreenToClient(window, &point);
                 if (g_app.stoch_resize_active || PointInStochResizeZone(point)) {
                     SetCursor(LoadCursorW(nullptr, IDC_SIZENS));
+                    return TRUE;
+                }
+                if (g_app.chart_drag_active ||
+                    (!g_app.trendline_mode && PointInRectStrict(ChartRect(), point))) {
+                    SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
                     return TRUE;
                 }
             }
@@ -2063,6 +2122,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
         case WM_CAPTURECHANGED:
             if (g_app.stoch_resize_active && reinterpret_cast<HWND>(l_param) != window) {
                 g_app.stoch_resize_active = false;
+            }
+            if (g_app.chart_drag_active && reinterpret_cast<HWND>(l_param) != window) {
+                g_app.chart_drag_active = false;
             }
             if (g_app.trendline_draft_active && reinterpret_cast<HWND>(l_param) != window) {
                 g_app.trendline_draft_active = false;
