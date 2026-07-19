@@ -1,5 +1,6 @@
 #include "data_feed.h"
 #include "embedded_btcusd_data.h"
+#include "project_store.h"
 #include "stoch_indicator.h"
 
 #include <windows.h>
@@ -15,6 +16,7 @@
 #include <cwchar>
 #include <cwctype>
 #include <initializer_list>
+#include <iomanip>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -46,6 +48,26 @@ constexpr int kSettingsButtonWidth = 86;
 constexpr int kHotkeysButtonWidth = 66;
 constexpr double kChartShiftRatio = 0.20;
 constexpr int kMinChartShiftSlots = 4;
+constexpr int kZoomMinQuarters = 1;
+constexpr int kZoomMaxQuarters = 64;
+constexpr int kZoomDefaultQuarters = 4;
+constexpr UINT kConsoleTimerId = 20;
+constexpr UINT kChartMessage = WM_APP + 31;
+constexpr int kConsolePlayButton = 4001;
+constexpr int kConsoleBackButton = 4002;
+constexpr int kConsoleForwardButton = 4003;
+constexpr int kConsoleSpeedButton = 4004;
+constexpr int kConsoleNewChartButton = 4005;
+constexpr int kConsoleProjectButton = 4006;
+constexpr int kConsoleNewProjectButton = 4007;
+constexpr int kConsoleDateInput = 4008;
+constexpr int kConsoleGoDateButton = 4009;
+constexpr int kProjectDialogName = 4101;
+constexpr int kProjectDialogStart = 4102;
+constexpr int kProjectDialogEnd = 4103;
+constexpr int kProjectDialogBrowse = 4104;
+constexpr int kProjectDialogApply = 4105;
+constexpr int kProjectDialogCancel = 4106;
 
 enum ControlId : int {
     kOpenButton = 1001,
@@ -160,6 +182,10 @@ struct AppState {
     HFONT small_font = nullptr;
 
     std::wstring current_file = L"Built-in demo data";
+    std::wstring project_id;
+    std::wstring project_name;
+    HWND console_window = nullptr;
+    std::wstring chart_window_id;
     std::vector<Candle> base_candles;
     std::vector<Candle> candles_1m;
     std::vector<Candle> candles_15m;
@@ -195,7 +221,7 @@ struct AppState {
     int stoch_panel_height = kStochPanelHeight;
     bool stoch_resize_active = false;
     bool status_visible = true;
-    int chart_zoom = 1;
+    double chart_zoom = 1.0;
     std::array<StochParameters, 9> stoch_parameters{};
     ShortcutBindings shortcuts;
     StochSeries stoch_series;
@@ -203,9 +229,101 @@ struct AppState {
 
 AppState g_app;
 
+struct ConsoleChild {
+    std::wstring id;
+    HWND window = nullptr;
+    DWORD process_id = 0;
+};
+
+struct ConsoleState {
+    HWND window = nullptr;
+    HWND project_label = nullptr;
+    HWND playback_label = nullptr;
+    HWND date_input = nullptr;
+    HWND play_button = nullptr;
+    HWND back_button = nullptr;
+    HWND forward_button = nullptr;
+    HWND speed_button = nullptr;
+    HWND new_chart_button = nullptr;
+    HWND project_button = nullptr;
+    HWND new_project_button = nullptr;
+    HFONT font = nullptr;
+    std::wstring project_id;
+    ProjectRecord project;
+    std::vector<Candle> base_candles;
+    std::vector<ConsoleChild> children;
+    bool playing = false;
+    double playback_accumulator = 0.0;
+    ULONGLONG last_tick_ms = 0;
+    bool dirty = false;
+    ULONGLONG last_save_ms = 0;
+};
+
+ConsoleState g_console;
+bool g_chart_mode = false;
+HWND g_console_window_from_args = nullptr;
+std::wstring g_project_id_from_args;
+std::wstring g_chart_window_id_from_args;
+bool g_elevated_attempt = false;
+
 RECT ChartRect();
 void InvalidateChartAndStatus();
 void CancelTrendlineDraft();
+std::size_t TimeframeIndex(Timeframe timeframe);
+void PersistChartProjectSnapshot();
+
+bool SendWindowTextMessage(HWND target, const std::wstring& text) {
+    if (target == nullptr || !IsWindow(target)) {
+        return false;
+    }
+    COPYDATASTRUCT data{};
+    data.dwData = 1;
+    data.cbData = static_cast<DWORD>((text.size() + 1) * sizeof(wchar_t));
+    data.lpData = const_cast<wchar_t*>(text.c_str());
+    const HWND source = g_chart_mode ? g_app.window : g_console.window;
+    SendMessageW(target, WM_COPYDATA, reinterpret_cast<WPARAM>(source),
+        reinterpret_cast<LPARAM>(&data));
+    return true;
+}
+
+void SendChartRegistration() {
+    if (g_app.console_window == nullptr || g_app.chart_window_id.empty()) return;
+    std::wostringstream message;
+    message << L"REGISTER|" << g_app.chart_window_id << L'|' << reinterpret_cast<UINT_PTR>(g_app.window);
+    SendWindowTextMessage(g_app.console_window, message.str());
+}
+
+void SendChartState() {
+    if (g_app.console_window == nullptr || g_app.chart_window_id.empty()) return;
+    RECT rect{};
+    GetWindowRect(g_app.window, &rect);
+    std::wostringstream message;
+    message << L"STATE|" << g_app.chart_window_id << L'|' << TimeframeIndex(g_app.timeframe)
+            << L'|' << static_cast<int>(std::lround(g_app.chart_zoom * 4.0)) << '|'
+            << (g_app.chart_follow_playback ? 1 : 0) << '|' << (g_app.stoch_visible ? 1 : 0)
+            << '|' << (g_app.status_visible ? 1 : 0) << '|' << rect.left << '|' << rect.top
+            << '|' << (rect.right - rect.left) << '|' << (rect.bottom - rect.top)
+            << '|' << g_app.stoch_panel_height;
+    SendWindowTextMessage(g_app.console_window, message.str());
+}
+
+void SendChartCommand(const std::wstring& command) {
+    if (g_app.console_window != nullptr) {
+        SendWindowTextMessage(g_app.console_window, L"COMMAND|" + command);
+    }
+}
+
+std::vector<std::wstring> SplitWide(const std::wstring& value, wchar_t separator) {
+    std::vector<std::wstring> result;
+    std::size_t begin = 0;
+    while (begin <= value.size()) {
+        const std::size_t end = value.find(separator, begin);
+        result.push_back(value.substr(begin, end == std::wstring::npos ? end : end - begin));
+        if (end == std::wstring::npos) break;
+        begin = end + 1;
+    }
+    return result;
+}
 
 std::wstring AsciiToWide(const char* text) {
     if (text == nullptr) {
@@ -446,7 +564,7 @@ ChartView BuildCurrentChartView() {
 
     view.candles = &candles;
     const int width = view.rect.right - view.rect.left;
-    const int candle_slot_width = std::max(1, ScaleByDpi(11 * g_app.chart_zoom));
+    const int candle_slot_width = std::max(1, ScaleByDpi(static_cast<int>(std::lround(11.0 * g_app.chart_zoom))));
     view.visible_count = std::max(20, width / candle_slot_width);
     const int max_padding_slots = std::max(1, view.visible_count - 1);
     const int min_padding_slots = std::min(kMinChartShiftSlots, max_padding_slots);
@@ -629,6 +747,133 @@ void InitializeStochParameters() {
     }
 }
 
+Timeframe TimeframeFromIndex(int index) {
+    switch (index) {
+        case 0: return Timeframe::M1;
+        case 1: return Timeframe::M15;
+        case 2: return Timeframe::M30;
+        case 3: return Timeframe::H1;
+        case 4: return Timeframe::H2;
+        case 5: return Timeframe::H4;
+        case 6: return Timeframe::D1;
+        case 7: return Timeframe::W1;
+        case 8: return Timeframe::MN1;
+        default: return Timeframe::M1;
+    }
+}
+
+std::wstring GenerateProjectId() {
+    FILETIME file_time{};
+    GetSystemTimeAsFileTime(&file_time);
+    ULARGE_INTEGER value{};
+    value.LowPart = file_time.dwLowDateTime;
+    value.HighPart = file_time.dwHighDateTime;
+    std::wostringstream stream;
+    stream << L"project-" << std::hex << value.QuadPart << L'-' << GetCurrentProcessId();
+    return stream.str();
+}
+
+ProjectRecord DefaultProjectRecord() {
+    ProjectRecord project;
+    project.id = GenerateProjectId();
+    project.name = L"Default BTCUSD Project";
+    project.builtin_source = true;
+    project.start_timestamp = embedded_btcusd_data::kCoverageStartTimestamp;
+    project.end_exclusive_timestamp = embedded_btcusd_data::kCoverageEndTimestamp + 60;
+    project.playback_timestamp = project.start_timestamp;
+    project.timeframe = 0;
+    project.speed_index = 0;
+    project.zoom_quarters = kZoomDefaultQuarters;
+    project.stoch_visible = true;
+    project.status_visible = true;
+    project.stoch_panel_height = kStochPanelHeight;
+
+    const std::array<Timeframe, 9> timeframes{
+        Timeframe::M1, Timeframe::M15, Timeframe::M30, Timeframe::H1, Timeframe::H2,
+        Timeframe::H4, Timeframe::D1, Timeframe::W1, Timeframe::MN1
+    };
+    for (std::size_t index = 0; index < timeframes.size(); ++index) {
+        const StochParameters parameters = DefaultStochParameters(timeframes[index]);
+        project.stoch_lengths[index] = parameters.lengths;
+    }
+    ShortcutBindings defaults;
+    project.shortcuts = defaults.keys;
+    project.windows.push_back(StoredWindow{L"chart-1", 0, 120, 100, 1200, 760,
+        kZoomDefaultQuarters, true, true, true, kStochPanelHeight});
+    return project;
+}
+
+std::wstring AppRelativePath(const std::wstring& relative_path) {
+    std::wstring root = ApplicationDirectory();
+    if (!root.empty() && root.back() != L'\\') root.push_back(L'\\');
+    return root + relative_path;
+}
+
+std::vector<Candle> LoadProjectSource(const ProjectRecord& project, std::wstring* error) {
+    std::string csv_error;
+    std::vector<Candle> candles;
+    if (project.builtin_source) {
+        candles = LoadCandlesFromCsvText(embedded_btcusd_data::kCsv, &csv_error);
+    } else {
+        candles = LoadCandlesFromCsv(AppRelativePath(project.source_relative_path), &csv_error);
+    }
+    if (candles.empty()) {
+        if (error != nullptr) *error = std::wstring(csv_error.begin(), csv_error.end());
+        return {};
+    }
+
+    std::vector<Candle> filtered;
+    filtered.reserve(candles.size());
+    for (const Candle& candle : candles) {
+        if (candle.timestamp >= project.start_timestamp &&
+            candle.timestamp < project.end_exclusive_timestamp) {
+            filtered.push_back(candle);
+        }
+    }
+    if (filtered.empty()) {
+        if (error != nullptr) *error = L"项目日期范围内没有可用 K 线。";
+        return {};
+    }
+    return filtered;
+}
+
+void RestoreStoredProjectState(const ProjectRecord& project) {
+    g_app.project_id = project.id;
+    g_app.project_name = project.name;
+    g_app.speed_index = std::clamp(project.speed_index, 0, static_cast<int>(g_app.speed_options.size()) - 1);
+    g_app.chart_zoom = std::clamp(static_cast<double>(project.zoom_quarters) / 4.0, 0.25, 16.0);
+    g_app.stoch_visible = project.stoch_visible;
+    g_app.status_visible = project.status_visible;
+    g_app.stoch_panel_height = std::clamp(project.stoch_panel_height,
+        kMinStochPanelHeight, kMaxStochPanelHeight);
+    for (std::size_t index = 0; index < g_app.stoch_parameters.size(); ++index) {
+        g_app.stoch_parameters[index].lengths = project.stoch_lengths[index];
+    }
+    g_app.shortcuts.keys = project.shortcuts;
+    g_app.trendlines.clear();
+    for (const StoredTrendline& stored : project.trendlines) {
+        g_app.trendlines.push_back(Trendline{
+            TrendPoint{stored.start_timestamp, stored.start_price},
+            TrendPoint{stored.end_timestamp, stored.end_price}});
+    }
+    g_app.trade_markers.clear();
+    for (const StoredMarker& stored : project.markers) {
+        g_app.trade_markers.push_back(TradeMarker{stored.timestamp, stored.price, stored.buy});
+    }
+    g_app.timeframe = TimeframeFromIndex(project.timeframe);
+    g_app.playing = false;
+    g_app.playback_timestamp = project.playback_timestamp;
+    if (g_app.playback_timestamp == 0 && !g_app.base_candles.empty()) {
+        g_app.playback_timestamp = g_app.base_candles.front().timestamp;
+    }
+    ClampPlaybackTimestamp();
+    SyncPlaybackIndexToTimestamp();
+    g_app.chart_end_index = g_app.playback_index;
+    g_app.chart_follow_playback = true;
+    RebuildStochSeries();
+    RefreshUiState();
+}
+
 void StopPlayback() {
     g_app.playing = false;
     g_app.playback_accumulator = 0.0;
@@ -643,6 +888,8 @@ void SetTimeframe(Timeframe timeframe) {
     g_app.chart_follow_playback = true;
     RebuildStochSeries();
     RefreshUiState();
+    PersistChartProjectSnapshot();
+    SendChartState();
 }
 
 void LocateDateFromInput() {
@@ -663,6 +910,11 @@ void LocateDateFromInput() {
     if (text.empty() || !ParseDateUtc(text, &timestamp)) {
         MessageBoxW(g_app.window, L"请输入有效日期，例如 2018-06-15。",
             L"Go Date", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    if (g_app.console_window != nullptr) {
+        SendChartCommand(L"TIME_REQUEST|" + std::to_wstring(timestamp));
         return;
     }
 
@@ -736,6 +988,7 @@ void CycleSpeed() {
 
 void CycleStochVisibility() {
     g_app.stoch_visible = !g_app.stoch_visible;
+    PersistChartProjectSnapshot();
     RefreshUiState();
 }
 
@@ -747,6 +1000,7 @@ void PlaceTradeMarker(bool buy) {
 
     const Candle& candle = candles[g_app.playback_index];
     g_app.trade_markers.push_back(TradeMarker{candle.timestamp, candle.close, buy});
+    PersistChartProjectSnapshot();
     RefreshUiState();
 }
 
@@ -754,12 +1008,14 @@ void AdjustChartZoom(int wheel_delta) {
     if (wheel_delta == 0) {
         return;
     }
-    const int direction = wheel_delta > 0 ? 1 : -1;
-    const int next_zoom = std::clamp(g_app.chart_zoom + direction, 1, 8);
-    if (next_zoom == g_app.chart_zoom) {
+    const double direction = wheel_delta > 0 ? 0.25 : -0.25;
+    const double next_zoom = std::clamp(g_app.chart_zoom + direction, 0.25, 16.0);
+    if (std::abs(next_zoom - g_app.chart_zoom) < 0.001) {
         return;
     }
     g_app.chart_zoom = next_zoom;
+    SendChartState();
+    PersistChartProjectSnapshot();
     InvalidateChartAndStatus();
 }
 
@@ -799,6 +1055,85 @@ void LoadDefaultDataset() {
     if (!error.empty()) {
         ShowLoadError(error);
     }
+}
+
+bool LoadProjectIntoChart(const std::wstring& project_id) {
+    ProjectRecord project;
+    std::wstring error;
+    if (!LoadProject(project_id, &project, &error)) {
+        if (!error.empty()) ShowLoadError(std::string(error.begin(), error.end()));
+        return false;
+    }
+    std::vector<Candle> candles = LoadProjectSource(project, &error);
+    if (candles.empty()) {
+        if (!error.empty()) ShowLoadError(std::string(error.begin(), error.end()));
+        return false;
+    }
+    LoadBaseCandles(std::move(candles), project.name);
+    RestoreStoredProjectState(project);
+    return true;
+}
+
+void RestoreChartWindowState(const ProjectRecord& project, const std::wstring& window_id) {
+    const auto it = std::find_if(project.windows.begin(), project.windows.end(),
+        [&](const StoredWindow& window) { return window.id == window_id; });
+    if (it == project.windows.end()) return;
+    g_app.timeframe = TimeframeFromIndex(it->timeframe);
+    g_app.chart_zoom = std::clamp(static_cast<double>(it->zoom_quarters) / 4.0, 0.25, 16.0);
+    g_app.chart_follow_playback = it->follow_playback;
+    g_app.stoch_visible = it->stoch_visible;
+    g_app.status_visible = it->status_visible;
+    g_app.stoch_panel_height = std::clamp(it->stoch_panel_height,
+        kMinStochPanelHeight, kMaxStochPanelHeight);
+    RebuildStochSeries();
+    RefreshUiState();
+    SetWindowPos(g_app.window, nullptr, it->left, it->top, it->width, it->height,
+        SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void PersistChartProjectSnapshot() {
+    if (!g_chart_mode || g_app.project_id.empty()) return;
+    ProjectRecord project;
+    if (!LoadProject(g_app.project_id, &project, nullptr)) return;
+    project.playback_timestamp = g_app.playback_timestamp;
+    project.speed_index = g_app.speed_index;
+    project.zoom_quarters = std::clamp(static_cast<int>(std::lround(g_app.chart_zoom * 4.0)),
+        kZoomMinQuarters, kZoomMaxQuarters);
+    project.stoch_visible = g_app.stoch_visible;
+    project.status_visible = g_app.status_visible;
+    project.stoch_panel_height = g_app.stoch_panel_height;
+    for (std::size_t index = 0; index < g_app.stoch_parameters.size(); ++index) {
+        project.stoch_lengths[index] = g_app.stoch_parameters[index].lengths;
+    }
+    project.shortcuts = g_app.shortcuts.keys;
+    project.trendlines.clear();
+    for (const Trendline& trendline : g_app.trendlines) {
+        project.trendlines.push_back(StoredTrendline{
+            trendline.start.timestamp, trendline.start.price,
+            trendline.end.timestamp, trendline.end.price});
+    }
+    project.markers.clear();
+    for (const TradeMarker& marker : g_app.trade_markers) {
+        project.markers.push_back(StoredMarker{marker.timestamp, marker.price, marker.buy});
+    }
+    auto window = std::find_if(project.windows.begin(), project.windows.end(),
+        [&](const StoredWindow& value) { return value.id == g_app.chart_window_id; });
+    if (window == project.windows.end()) {
+        project.windows.push_back(StoredWindow{});
+        window = std::prev(project.windows.end());
+        window->id = g_app.chart_window_id;
+    }
+    RECT rect{};
+    GetWindowRect(g_app.window, &rect);
+    window->timeframe = static_cast<int>(TimeframeIndex(g_app.timeframe));
+    window->zoom_quarters = project.zoom_quarters;
+    window->follow_playback = g_app.chart_follow_playback;
+    window->stoch_visible = g_app.stoch_visible;
+    window->status_visible = g_app.status_visible;
+    window->left = rect.left; window->top = rect.top;
+    window->width = rect.right - rect.left; window->height = rect.bottom - rect.top;
+    window->stoch_panel_height = g_app.stoch_panel_height;
+    SaveProject(project, nullptr);
 }
 
 void OpenCsvDialog() {
@@ -1025,6 +1360,7 @@ bool ApplySettingsDialog(SettingsDialogContext* context) {
         }
         CurrentStochParameters() = next;
         RebuildStochSeries();
+        PersistChartProjectSnapshot();
         RefreshUiState();
         return true;
     }
@@ -1042,6 +1378,7 @@ bool ApplySettingsDialog(SettingsDialogContext* context) {
         next.keys[index] = key;
     }
     g_app.shortcuts = next;
+    PersistChartProjectSnapshot();
     RefreshUiState();
     return true;
 }
@@ -1145,17 +1482,33 @@ bool HandleConfiguredShortcut(UINT key) {
         }
         switch (static_cast<ShortcutAction>(reverse - 1)) {
             case ShortcutAction::PlayPause:
+                if (g_app.console_window != nullptr) {
+                    SendChartCommand(L"PLAY_PAUSE");
+                    return true;
+                }
                 TogglePlayback();
                 return true;
             case ShortcutAction::Previous:
+                if (g_app.console_window != nullptr) {
+                    SendChartCommand(L"STEP|-1");
+                    return true;
+                }
                 StopPlayback();
                 StepPlayback(-1);
                 return true;
             case ShortcutAction::Next:
+                if (g_app.console_window != nullptr) {
+                    SendChartCommand(L"STEP|1");
+                    return true;
+                }
                 StopPlayback();
                 StepPlayback(1);
                 return true;
             case ShortcutAction::Speed:
+                if (g_app.console_window != nullptr) {
+                    SendChartCommand(L"SPEED");
+                    return true;
+                }
                 CycleSpeed();
                 return true;
             case ShortcutAction::Trendline:
@@ -1396,6 +1749,8 @@ void ResizeStochPanelForY(int y) {
 
     g_app.stoch_panel_height = std::max(kMinStochPanelHeight,
         MulDiv(next_height, static_cast<int>(kDefaultDpi), static_cast<int>(g_app.dpi)));
+    PersistChartProjectSnapshot();
+    SendChartState();
     InvalidateChartAndStatus();
 }
 
@@ -1606,6 +1961,7 @@ void CommitTrendlineDraft(const TrendPoint& point) {
     g_app.trendlines.push_back(Trendline{g_app.trendline_draft_start, point});
     g_app.trendline_draft_active = false;
     ReleaseCapture();
+    PersistChartProjectSnapshot();
     InvalidateRect(g_app.window, nullptr, FALSE);
 }
 
@@ -1990,6 +2346,700 @@ void HandlePlaybackTick() {
     InvalidateChartAndStatus();
 }
 
+void HandleChartIpcMessage(const std::wstring& text) {
+    const std::vector<std::wstring> parts = SplitWide(text, L'|');
+    if (parts.empty()) return;
+    if (parts[0] == L"TIME" && parts.size() >= 3) {
+        try {
+            g_app.playback_timestamp = std::stoll(parts[1]);
+        } catch (...) {
+            return;
+        }
+        g_app.playing = false;
+        if (parts.size() >= 4) {
+            try {
+                g_app.speed_index = std::clamp(std::stoi(parts[3]), 0,
+                    static_cast<int>(g_app.speed_options.size()) - 1);
+            } catch (...) {
+            }
+        }
+        ClampPlaybackTimestamp();
+        SyncPlaybackIndexToTimestamp();
+        g_app.chart_end_index = g_app.playback_index;
+        g_app.chart_follow_playback = true;
+        RefreshUiState();
+        return;
+    }
+    if (parts[0] == L"CLOSE") {
+        DestroyWindow(g_app.window);
+    }
+}
+
+std::wstring ConsoleDisplayTime() {
+    return FormatTimestamp(g_console.project.playback_timestamp);
+}
+
+void UpdateConsoleControls() {
+    if (g_console.play_button != nullptr) {
+        SetWindowTextW(g_console.play_button, g_console.playing ? L"Pause" : L"Play");
+    }
+    if (g_console.speed_button != nullptr) {
+        std::wostringstream text;
+        text << L"Speed x" << (g_console.project.speed_index == 0 ? 1 :
+            g_console.project.speed_index == 1 ? 2 : g_console.project.speed_index == 2 ? 4 : 8);
+        SetWindowTextW(g_console.speed_button, text.str().c_str());
+    }
+    if (g_console.project_label != nullptr) {
+        std::wstring text = L"Project: " + g_console.project.name + L"  |  " +
+            DateOnlyText(g_console.project.start_timestamp) + L" -> " +
+            DateOnlyText(g_console.project.end_exclusive_timestamp - 60);
+        SetWindowTextW(g_console.project_label, text.c_str());
+    }
+    if (g_console.playback_label != nullptr) {
+        const std::wstring text = L"UTC: " + ConsoleDisplayTime() +
+            L"  |  Charts: " + std::to_wstring(g_console.children.size());
+        SetWindowTextW(g_console.playback_label, text.c_str());
+    }
+    if (g_console.date_input != nullptr && g_console.project.playback_timestamp != 0) {
+        SetWindowTextW(g_console.date_input, DateOnlyText(g_console.project.playback_timestamp).c_str());
+    }
+}
+
+void MarkConsoleDirty() {
+    g_console.dirty = true;
+}
+
+void BroadcastConsoleTime() {
+    for (auto it = g_console.children.begin(); it != g_console.children.end();) {
+        if (it->window == nullptr || !IsWindow(it->window)) {
+            it = g_console.children.erase(it);
+            continue;
+        }
+        std::wostringstream message;
+        message << L"TIME|" << g_console.project.playback_timestamp << L'|'
+                << (g_console.playing ? 1 : 0) << L'|' << g_console.project.speed_index;
+        SendWindowTextMessage(it->window, message.str());
+        ++it;
+    }
+    UpdateConsoleControls();
+}
+
+void SetConsolePlaybackTimestamp(std::int64_t timestamp) {
+    if (g_console.base_candles.empty()) return;
+    const auto it = std::lower_bound(g_console.base_candles.begin(), g_console.base_candles.end(), timestamp,
+        [](const Candle& candle, std::int64_t value) { return candle.timestamp < value; });
+    if (it == g_console.base_candles.end()) {
+        g_console.project.playback_timestamp = g_console.base_candles.back().timestamp;
+    } else if (it == g_console.base_candles.begin()) {
+        g_console.project.playback_timestamp = it->timestamp;
+    } else {
+        g_console.project.playback_timestamp = it->timestamp;
+    }
+    MarkConsoleDirty();
+    BroadcastConsoleTime();
+}
+
+void StepConsolePlayback(int delta) {
+    if (g_console.base_candles.empty()) return;
+    auto it = std::upper_bound(g_console.base_candles.begin(), g_console.base_candles.end(),
+        g_console.project.playback_timestamp,
+        [](std::int64_t value, const Candle& candle) { return value < candle.timestamp; });
+    std::ptrdiff_t index = it == g_console.base_candles.begin() ? 0 : (it - g_console.base_candles.begin()) - 1;
+    index = std::clamp<std::ptrdiff_t>(index + delta, 0,
+        static_cast<std::ptrdiff_t>(g_console.base_candles.size() - 1));
+    g_console.playing = false;
+    g_console.project.playback_timestamp = g_console.base_candles[static_cast<std::size_t>(index)].timestamp;
+    MarkConsoleDirty();
+    BroadcastConsoleTime();
+}
+
+void ToggleConsolePlayback() {
+    if (g_console.base_candles.empty()) return;
+    g_console.playing = !g_console.playing;
+    g_console.playback_accumulator = 0.0;
+    g_console.last_tick_ms = GetTickCount64();
+    MarkConsoleDirty();
+    BroadcastConsoleTime();
+}
+
+void CycleConsoleSpeed() {
+    g_console.project.speed_index = (g_console.project.speed_index + 1) % 4;
+    MarkConsoleDirty();
+    BroadcastConsoleTime();
+}
+
+void SaveConsoleProject() {
+    if (g_console.project_id.empty()) return;
+    g_console.project.playback_timestamp = std::clamp(g_console.project.playback_timestamp,
+        g_console.project.start_timestamp, g_console.project.end_exclusive_timestamp - 60);
+    // Chart processes persist visual settings and markers directly. Merge those
+    // fields from disk before saving the controller-owned playback state so a
+    // timer save cannot overwrite a recent chart edit.
+    ProjectRecord project_to_save = g_console.project;
+    ProjectRecord disk_project;
+    if (LoadProject(g_console.project.id, &disk_project, nullptr)) {
+        project_to_save.stoch_lengths = disk_project.stoch_lengths;
+        project_to_save.shortcuts = disk_project.shortcuts;
+        project_to_save.trendlines = disk_project.trendlines;
+        project_to_save.markers = disk_project.markers;
+        project_to_save.stoch_visible = disk_project.stoch_visible;
+        project_to_save.status_visible = disk_project.status_visible;
+        project_to_save.stoch_panel_height = disk_project.stoch_panel_height;
+    }
+    std::wstring error;
+    if (SaveProject(project_to_save, &error) && WriteLastProjectId(project_to_save.id, &error)) {
+        g_console.project = project_to_save;
+        g_console.dirty = false;
+        g_console.last_save_ms = GetTickCount64();
+    } else if (!error.empty() && g_console.window != nullptr) {
+        MessageBoxW(g_console.window, error.c_str(), L"Project save", MB_OK | MB_ICONWARNING);
+    }
+}
+
+bool LoadConsoleProject(const std::wstring& project_id) {
+    ProjectRecord project;
+    std::wstring error;
+    if (!LoadProject(project_id, &project, &error)) {
+        if (g_console.window != nullptr) MessageBoxW(g_console.window, error.c_str(), L"Project", MB_OK | MB_ICONWARNING);
+        return false;
+    }
+    std::vector<Candle> candles = LoadProjectSource(project, &error);
+    if (candles.empty()) {
+        if (g_console.window != nullptr) MessageBoxW(g_console.window, error.c_str(), L"Project", MB_OK | MB_ICONWARNING);
+        return false;
+    }
+    g_console.project_id = project.id;
+    g_console.project = std::move(project);
+    g_console.base_candles = std::move(candles);
+    if (g_console.project.playback_timestamp == 0) {
+        g_console.project.playback_timestamp = g_console.base_candles.front().timestamp;
+    }
+    SetConsolePlaybackTimestamp(g_console.project.playback_timestamp);
+    g_console.playing = false;
+    g_console.dirty = false;
+    UpdateConsoleControls();
+    return true;
+}
+
+void CloseConsoleCharts() {
+    const std::vector<ConsoleChild> children = g_console.children;
+    for (const ConsoleChild& child : children) {
+        if (child.window != nullptr && IsWindow(child.window)) {
+            SendWindowTextMessage(child.window, L"CLOSE");
+        }
+    }
+    g_console.children.clear();
+}
+
+void LaunchChartWindow(const StoredWindow& stored) {
+    wchar_t module_path[MAX_PATH] = {};
+    const DWORD length = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) return;
+    std::wostringstream command;
+    command << L"\"" << module_path << L"\" --chart --console-hwnd="
+            << reinterpret_cast<UINT_PTR>(g_console.window) << L" --project-id=\""
+            << g_console.project.id << L"\" --window-id=\"" << stored.id << L"\"";
+    std::wstring command_text = command.str();
+    std::vector<wchar_t> mutable_command(command_text.begin(), command_text.end());
+    mutable_command.push_back(L'\0');
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr, FALSE, 0, nullptr,
+        nullptr, &startup, &process) != FALSE) {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+    }
+}
+
+void RestoreConsoleCharts() {
+    for (const StoredWindow& window : g_console.project.windows) {
+        LaunchChartWindow(window);
+    }
+}
+
+void HandleConsoleMessage(HWND sender, const std::wstring& text) {
+    const auto parts = SplitWide(text, L'|');
+    if (parts.empty()) return;
+    if (parts[0] == L"REGISTER" && parts.size() >= 2) {
+        const std::wstring& id = parts[1];
+        auto it = std::find_if(g_console.children.begin(), g_console.children.end(),
+            [&](const ConsoleChild& child) { return child.id == id; });
+        if (it == g_console.children.end()) {
+            g_console.children.push_back(ConsoleChild{id, sender, 0});
+        } else {
+            it->window = sender;
+        }
+        for (const StoredWindow& window : g_console.project.windows) {
+            if (window.id == id) {
+                SendWindowTextMessage(sender, L"TIME|" + std::to_wstring(g_console.project.playback_timestamp) +
+                    L"|0|" + std::to_wstring(g_console.project.speed_index));
+                break;
+            }
+        }
+        UpdateConsoleControls();
+        return;
+    }
+    if (parts[0] == L"STATE" && parts.size() >= 12) {
+        const std::wstring& id = parts[1];
+        const auto child = std::find_if(g_console.children.begin(), g_console.children.end(),
+            [&](const ConsoleChild& value) { return value.id == id; });
+        if (child == g_console.children.end() || child->window != sender) return;
+        auto it = std::find_if(g_console.project.windows.begin(), g_console.project.windows.end(),
+            [&](const StoredWindow& window) { return window.id == id; });
+        if (it == g_console.project.windows.end()) {
+            g_console.project.windows.push_back(StoredWindow{});
+            it = std::prev(g_console.project.windows.end());
+            it->id = id;
+        }
+        try {
+            it->timeframe = std::stoi(parts[2]);
+            it->zoom_quarters = std::clamp(std::stoi(parts[3]), kZoomMinQuarters, kZoomMaxQuarters);
+            it->follow_playback = std::stoi(parts[4]) != 0;
+            it->stoch_visible = std::stoi(parts[5]) != 0;
+            it->status_visible = std::stoi(parts[6]) != 0;
+            it->left = std::stoi(parts[7]); it->top = std::stoi(parts[8]);
+            it->width = std::max(400, std::stoi(parts[9]));
+            it->height = std::max(300, std::stoi(parts[10]));
+            it->stoch_panel_height = std::clamp(std::stoi(parts[11]), kMinStochPanelHeight, kMaxStochPanelHeight);
+            MarkConsoleDirty();
+        } catch (...) {
+        }
+        return;
+    }
+    if (parts[0] == L"CLOSE" && parts.size() >= 2) {
+        g_console.children.erase(std::remove_if(g_console.children.begin(), g_console.children.end(),
+            [&](const ConsoleChild& child) { return child.id == parts[1] && child.window == sender; }), g_console.children.end());
+        MarkConsoleDirty();
+        UpdateConsoleControls();
+        return;
+    }
+    if (parts[0] == L"TIME_REQUEST" && parts.size() >= 2) {
+        try { SetConsolePlaybackTimestamp(std::stoll(parts[1])); } catch (...) {}
+        return;
+    }
+    if (parts[0] == L"COMMAND" && parts.size() >= 2) {
+        if (parts[1] == L"PLAY_PAUSE") ToggleConsolePlayback();
+        else if (parts[1] == L"SPEED") CycleConsoleSpeed();
+        else if (parts[1] == L"STEP" && parts.size() >= 3) {
+            try { StepConsolePlayback(std::stoi(parts[2])); } catch (...) {}
+        }
+    }
+}
+
+void HandleConsoleTick() {
+    if (!g_console.playing || g_console.base_candles.empty()) return;
+    const ULONGLONG now = GetTickCount64();
+    const double elapsed = static_cast<double>(now - g_console.last_tick_ms) / 1000.0;
+    g_console.last_tick_ms = now;
+    g_console.playback_accumulator += elapsed * (1 << g_console.project.speed_index);
+    const int advance = static_cast<int>(std::floor(g_console.playback_accumulator));
+    if (advance <= 0) return;
+    g_console.playback_accumulator -= advance;
+    auto it = std::upper_bound(g_console.base_candles.begin(), g_console.base_candles.end(),
+        g_console.project.playback_timestamp,
+        [](std::int64_t value, const Candle& candle) { return value < candle.timestamp; });
+    std::ptrdiff_t index = it == g_console.base_candles.begin() ? 0 : (it - g_console.base_candles.begin()) - 1;
+    index = std::min<std::ptrdiff_t>(index + advance, static_cast<std::ptrdiff_t>(g_console.base_candles.size() - 1));
+    g_console.project.playback_timestamp = g_console.base_candles[static_cast<std::size_t>(index)].timestamp;
+    if (index >= static_cast<std::ptrdiff_t>(g_console.base_candles.size() - 1)) g_console.playing = false;
+    MarkConsoleDirty();
+    BroadcastConsoleTime();
+}
+
+void LayoutConsoleControls() {
+    RECT client{};
+    GetClientRect(g_console.window, &client);
+    const int gap = 8;
+    int x = 12;
+    const int y = 12;
+    const int height = 28;
+    for (HWND control : {g_console.play_button, g_console.back_button, g_console.forward_button,
+                         g_console.speed_button, g_console.new_chart_button,
+                         g_console.project_button, g_console.new_project_button}) {
+        if (control != nullptr) {
+            MoveWindow(control, x, y, 100, height, TRUE);
+            x += 100 + gap;
+        }
+    }
+    MoveWindow(g_console.project_label, 12, 55, client.right - 24, 24, TRUE);
+    MoveWindow(g_console.playback_label, 12, 82, client.right - 24, 24, TRUE);
+    MoveWindow(g_console.date_input, 12, 120, 130, height, TRUE);
+    MoveWindow(GetDlgItem(g_console.window, kConsoleGoDateButton), 150, 120, 90, height, TRUE);
+}
+
+void SetConsoleFont(HWND control) {
+    if (control != nullptr && g_console.font != nullptr) {
+        SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(g_console.font), TRUE);
+    }
+}
+
+bool RelaunchConsoleElevated() {
+    if (g_elevated_attempt) return false;
+    const std::wstring executable = AppRelativePath(L"BtcUsdReplay.exe");
+    const HINSTANCE result = ShellExecuteW(nullptr, L"runas", executable.c_str(), L"--elevated",
+        ApplicationDirectory().c_str(), SW_SHOWNORMAL);
+    return reinterpret_cast<INT_PTR>(result) > 32;
+}
+
+void CreateConsoleControls() {
+    g_console.play_button = CreateWindowExW(0, L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 0, 0, g_console.window, reinterpret_cast<HMENU>(kConsolePlayButton), nullptr, nullptr);
+    g_console.back_button = CreateWindowExW(0, L"BUTTON", L"Step Back", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 0, 0, g_console.window, reinterpret_cast<HMENU>(kConsoleBackButton), nullptr, nullptr);
+    g_console.forward_button = CreateWindowExW(0, L"BUTTON", L"Step Forward", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 0, 0, g_console.window, reinterpret_cast<HMENU>(kConsoleForwardButton), nullptr, nullptr);
+    g_console.speed_button = CreateWindowExW(0, L"BUTTON", L"Speed x1", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 0, 0, g_console.window, reinterpret_cast<HMENU>(kConsoleSpeedButton), nullptr, nullptr);
+    g_console.new_chart_button = CreateWindowExW(0, L"BUTTON", L"New Chart", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 0, 0, g_console.window, reinterpret_cast<HMENU>(kConsoleNewChartButton), nullptr, nullptr);
+    g_console.project_button = CreateWindowExW(0, L"BUTTON", L"Open Project", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 0, 0, g_console.window, reinterpret_cast<HMENU>(kConsoleProjectButton), nullptr, nullptr);
+    g_console.new_project_button = CreateWindowExW(0, L"BUTTON", L"New Project", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 0, 0, g_console.window, reinterpret_cast<HMENU>(kConsoleNewProjectButton), nullptr, nullptr);
+    g_console.project_label = CreateWindowExW(0, L"STATIC", L"Project", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, g_console.window, nullptr, nullptr, nullptr);
+    g_console.playback_label = CreateWindowExW(0, L"STATIC", L"UTC", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, g_console.window, nullptr, nullptr, nullptr);
+    g_console.date_input = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"2016-01-01",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, 0, 0, g_console.window,
+        reinterpret_cast<HMENU>(kConsoleDateInput), nullptr, nullptr);
+    HWND go_date = CreateWindowExW(0, L"BUTTON", L"Go Date", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        0, 0, 0, 0, g_console.window, reinterpret_cast<HMENU>(kConsoleGoDateButton), nullptr, nullptr);
+    g_console.font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    for (HWND control : {g_console.play_button, g_console.back_button, g_console.forward_button,
+                         g_console.speed_button, g_console.new_chart_button, g_console.project_button,
+                         g_console.new_project_button, g_console.project_label, g_console.playback_label,
+                         g_console.date_input, go_date}) {
+        SetConsoleFont(control);
+    }
+    LayoutConsoleControls();
+}
+
+bool EnsureInitialConsoleProject() {
+    std::wstring error;
+    if (!EnsureProjectDirectories(&error)) {
+        if (RelaunchConsoleElevated()) {
+            PostQuitMessage(0);
+        } else {
+            MessageBoxW(g_console.window, error.c_str(), L"Project directory", MB_OK | MB_ICONERROR);
+        }
+        return false;
+    }
+    std::wstring project_id;
+    if (ReadLastProjectId(&project_id) && LoadConsoleProject(project_id)) return true;
+    const std::vector<std::wstring> ids = ListProjectIds();
+    if (!ids.empty() && LoadConsoleProject(ids.front())) {
+        return true;
+    }
+    g_console.project = DefaultProjectRecord();
+    g_console.project_id = g_console.project.id;
+    g_console.base_candles = LoadProjectSource(g_console.project, &error);
+    if (g_console.base_candles.empty()) {
+        MessageBoxW(g_console.window, error.c_str(), L"Project", MB_OK | MB_ICONERROR);
+        return false;
+    }
+    g_console.project.playback_timestamp = g_console.base_candles.front().timestamp;
+    SaveConsoleProject();
+    return true;
+}
+
+std::wstring ProjectIdFromPath(const std::wstring& path) {
+    const std::size_t slash = path.find_last_of(L"\\/");
+    const std::size_t begin = slash == std::wstring::npos ? 0 : slash + 1;
+    std::wstring name = path.substr(begin);
+    if (name.size() > 7 && name.substr(name.size() - 7) == L".replay") name.resize(name.size() - 7);
+    return name;
+}
+
+void OpenProjectFileDialog() {
+    wchar_t path[MAX_PATH] = {};
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = g_console.window;
+    dialog.lpstrFilter = L"Replay Projects\0*.replay\0All Files\0*.*\0";
+    dialog.lpstrFile = path;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.lpstrInitialDir = ProjectsDirectory().c_str();
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameW(&dialog)) return;
+    const std::wstring id = ProjectIdFromPath(path);
+    if (id.empty() || id == g_console.project.id) return;
+    SaveConsoleProject();
+    CloseConsoleCharts();
+    if (LoadConsoleProject(id)) RestoreConsoleCharts();
+}
+
+struct NewProjectDialogContext {
+    HWND window = nullptr;
+    HWND name_edit = nullptr;
+    HWND start_edit = nullptr;
+    HWND end_edit = nullptr;
+    HWND source_label = nullptr;
+    std::wstring source_path;
+};
+
+void CreateNewProjectDialogControls(NewProjectDialogContext* context) {
+    CreateSettingsStatic(context->window, L"Project name", 24, 24, 130, 24);
+    context->name_edit = CreateSettingsEdit(context->window, L"New BTCUSD Project",
+        kProjectDialogName, 160, 20, 280, 27);
+    CreateSettingsStatic(context->window, L"Start date (UTC)", 24, 66, 130, 24);
+    context->start_edit = CreateSettingsEdit(context->window, L"2016-01-01",
+        kProjectDialogStart, 160, 62, 150, 27);
+    CreateSettingsStatic(context->window, L"End date (UTC)", 24, 108, 130, 24);
+    context->end_edit = CreateSettingsEdit(context->window, L"2018-12-31",
+        kProjectDialogEnd, 160, 104, 150, 27);
+    HWND browse = CreateWindowExW(0, L"BUTTON", L"Browse CSV (optional)",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 24, 150, 190, 28,
+        context->window, reinterpret_cast<HMENU>(kProjectDialogBrowse), nullptr, nullptr);
+    context->source_label = CreateSettingsStatic(context->window, L"Using built-in BTCUSD data",
+        24, 188, 470, 24);
+    HWND apply = CreateWindowExW(0, L"BUTTON", L"Create", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+        300, 235, 90, 30, context->window, reinterpret_cast<HMENU>(kProjectDialogApply), nullptr, nullptr);
+    HWND cancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+        400, 235, 90, 30, context->window, reinterpret_cast<HMENU>(kProjectDialogCancel), nullptr, nullptr);
+    for (HWND control : {context->name_edit, context->start_edit, context->end_edit,
+                         browse, context->source_label, apply, cancel}) {
+        SetControlFont(control);
+    }
+}
+
+bool ApplyNewProjectDialog(NewProjectDialogContext* context) {
+    std::wstring name;
+    std::wstring start_text;
+    std::wstring end_text;
+    if (!ReadEditText(context->name_edit, &name) || !ReadEditText(context->start_edit, &start_text) ||
+        !ReadEditText(context->end_edit, &end_text)) {
+        MessageBoxW(context->window, L"项目名称和日期不能为空。", L"New Project", MB_OK | MB_ICONWARNING);
+        return false;
+    }
+    name = TrimWide(name);
+    std::int64_t start = 0;
+    std::int64_t end = 0;
+    if (name.empty() || !ParseDateUtc(start_text, &start) || !ParseDateUtc(end_text, &end)) {
+        MessageBoxW(context->window, L"请输入合法名称和 YYYY-MM-DD 日期。", L"New Project", MB_OK | MB_ICONWARNING);
+        return false;
+    }
+    if (end < start) {
+        MessageBoxW(context->window, L"结束日期不能早于开始日期。", L"New Project", MB_OK | MB_ICONWARNING);
+        return false;
+    }
+    for (const std::wstring& id : ListProjectIds()) {
+        ProjectRecord existing;
+        if (LoadProject(id, &existing, nullptr) && existing.name == name) {
+            MessageBoxW(context->window, L"项目名称已经存在。", L"New Project", MB_OK | MB_ICONWARNING);
+            return false;
+        }
+    }
+
+    ProjectRecord project = DefaultProjectRecord();
+    project.name = name;
+    project.start_timestamp = start;
+    project.end_exclusive_timestamp = end + 24 * 60 * 60;
+    project.playback_timestamp = start;
+    project.windows.clear();
+    project.windows.push_back(StoredWindow{L"chart-1", 0, 120, 100, 1200, 760,
+        kZoomDefaultQuarters, true, true, true, kStochPanelHeight});
+    if (!context->source_path.empty()) {
+        std::wstring relative;
+        std::wstring error;
+        if (!CopyCsvIntoDataDirectory(context->source_path, project.id, &relative, &error)) {
+            MessageBoxW(context->window, error.c_str(), L"New Project", MB_OK | MB_ICONWARNING);
+            return false;
+        }
+        project.builtin_source = false;
+        project.source_relative_path = relative;
+    }
+    std::wstring error;
+    if (LoadProjectSource(project, &error).empty()) {
+        MessageBoxW(context->window, error.c_str(), L"New Project", MB_OK | MB_ICONWARNING);
+        return false;
+    }
+    if (!SaveProject(project, &error)) {
+        MessageBoxW(context->window, error.c_str(), L"New Project", MB_OK | MB_ICONWARNING);
+        return false;
+    }
+    SaveConsoleProject();
+    CloseConsoleCharts();
+    if (LoadConsoleProject(project.id)) RestoreConsoleCharts();
+    return true;
+}
+
+LRESULT CALLBACK NewProjectDialogProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param) {
+    auto* context = reinterpret_cast<NewProjectDialogContext*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(l_param);
+        context = static_cast<NewProjectDialogContext*>(create->lpCreateParams);
+        context->window = window;
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(context));
+    }
+    switch (message) {
+        case WM_CREATE:
+            CreateNewProjectDialogControls(context);
+            return 0;
+        case WM_COMMAND:
+            if (LOWORD(w_param) == kProjectDialogBrowse) {
+                wchar_t path[MAX_PATH] = {};
+                OPENFILENAMEW dialog{};
+                dialog.lStructSize = sizeof(dialog);
+                dialog.hwndOwner = window;
+                dialog.lpstrFilter = L"CSV Files\0*.csv\0All Files\0*.*\0";
+                dialog.lpstrFile = path;
+                dialog.nMaxFile = MAX_PATH;
+                dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+                if (GetOpenFileNameW(&dialog)) {
+                    context->source_path = path;
+                    SetWindowTextW(context->source_label, context->source_path.c_str());
+                }
+                return 0;
+            }
+            if (LOWORD(w_param) == kProjectDialogApply) {
+                if (ApplyNewProjectDialog(context)) DestroyWindow(window);
+                return 0;
+            }
+            if (LOWORD(w_param) == kProjectDialogCancel) {
+                DestroyWindow(window);
+                return 0;
+            }
+            break;
+        case WM_CLOSE:
+            DestroyWindow(window);
+            return 0;
+        default: break;
+    }
+    return DefWindowProcW(window, message, w_param, l_param);
+}
+
+void CreateNewProjectFromCurrent() {
+    static const wchar_t* class_name = L"BtcUsdReplayNewProjectDialog";
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSW window_class{};
+        window_class.lpfnWndProc = NewProjectDialogProc;
+        window_class.hInstance = GetModuleHandleW(nullptr);
+        window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
+        window_class.lpszClassName = class_name;
+        if (RegisterClassW(&window_class) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return;
+        registered = true;
+    }
+    NewProjectDialogContext context;
+    HWND dialog = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT, class_name,
+        L"New Replay Project", WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT, CW_USEDEFAULT, 540, 315, g_console.window, nullptr,
+        GetModuleHandleW(nullptr), &context);
+    if (dialog == nullptr) return;
+    RECT owner{};
+    GetWindowRect(g_console.window, &owner);
+    SetWindowPos(dialog, HWND_TOP,
+        owner.left + ((owner.right - owner.left) - 540) / 2,
+        owner.top + ((owner.bottom - owner.top) - 315) / 2,
+        0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+    EnableWindow(g_console.window, FALSE);
+    ShowWindow(dialog, SW_SHOW);
+    UpdateWindow(dialog);
+    SetFocus(context.name_edit);
+    MSG message{};
+    while (IsWindow(dialog) && GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (!IsDialogMessageW(dialog, &message)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    EnableWindow(g_console.window, TRUE);
+    SetForegroundWindow(g_console.window);
+}
+
+void CreateNewChartWindow() {
+    StoredWindow window;
+    int number = 1;
+    for (;;) {
+        window.id = L"chart-" + std::to_wstring(number++);
+        const auto it = std::find_if(g_console.project.windows.begin(), g_console.project.windows.end(),
+            [&](const StoredWindow& existing) { return existing.id == window.id; });
+        if (it == g_console.project.windows.end()) break;
+    }
+    window.timeframe = 0;
+    window.left = 140 + static_cast<int>(g_console.children.size()) * 30;
+    window.top = 140 + static_cast<int>(g_console.children.size()) * 30;
+    window.width = 1200;
+    window.height = 760;
+    window.zoom_quarters = kZoomDefaultQuarters;
+    g_console.project.windows.push_back(window);
+    MarkConsoleDirty();
+    LaunchChartWindow(window);
+}
+
+LRESULT CALLBACK ConsoleWindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param) {
+    switch (message) {
+        case WM_CREATE:
+            g_console.window = window;
+            CreateConsoleControls();
+            SetTimer(window, kConsoleTimerId, 33, nullptr);
+            if (!EnsureInitialConsoleProject()) return -1;
+            RestoreConsoleCharts();
+            UpdateConsoleControls();
+            return 0;
+        case WM_SIZE:
+            LayoutConsoleControls();
+            return 0;
+        case WM_COMMAND:
+            switch (LOWORD(w_param)) {
+                case kConsolePlayButton: ToggleConsolePlayback(); return 0;
+                case kConsoleBackButton: StepConsolePlayback(-1); return 0;
+                case kConsoleForwardButton: StepConsolePlayback(1); return 0;
+                case kConsoleSpeedButton: CycleConsoleSpeed(); return 0;
+                case kConsoleNewChartButton: CreateNewChartWindow(); return 0;
+                case kConsoleProjectButton: OpenProjectFileDialog(); return 0;
+                case kConsoleNewProjectButton: CreateNewProjectFromCurrent(); return 0;
+                case kConsoleGoDateButton: {
+                    std::wstring text;
+                    if (ReadEditText(g_console.date_input, &text)) {
+                        std::int64_t timestamp = 0;
+                        if (ParseDateUtc(text, &timestamp)) SetConsolePlaybackTimestamp(timestamp);
+                        else MessageBoxW(window, L"请输入有效日期，例如 2018-06-15。", L"Go Date", MB_OK | MB_ICONWARNING);
+                    }
+                    return 0;
+                }
+                default: break;
+            }
+            break;
+        case WM_COPYDATA:
+            if (l_param != 0) {
+                const auto* data = reinterpret_cast<const COPYDATASTRUCT*>(l_param);
+                if (data->lpData != nullptr && data->cbData >= sizeof(wchar_t)) {
+                    const auto* text = static_cast<const wchar_t*>(data->lpData);
+                    const std::size_t length = data->cbData / sizeof(wchar_t);
+                    HandleConsoleMessage(reinterpret_cast<HWND>(w_param),
+                        std::wstring(text, text + (length > 0 && text[length - 1] == L'\0' ? length - 1 : length)));
+                }
+                return TRUE;
+            }
+            break;
+        case WM_TIMER:
+            if (w_param == kConsoleTimerId) {
+                HandleConsoleTick();
+                if (g_console.dirty && GetTickCount64() - g_console.last_save_ms > 1000) SaveConsoleProject();
+                return 0;
+            }
+            break;
+        case WM_CLOSE:
+            SaveConsoleProject();
+            CloseConsoleCharts();
+            DestroyWindow(window);
+            return 0;
+        case WM_DESTROY:
+            KillTimer(window, kConsoleTimerId);
+            if (g_console.font != nullptr) DeleteObject(g_console.font);
+            g_console.font = nullptr;
+            PostQuitMessage(0);
+            return 0;
+        default: break;
+    }
+    return DefWindowProcW(window, message, w_param, l_param);
+}
+
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param) {
     switch (message) {
         case WM_CREATE:
@@ -1997,6 +3047,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
             g_app.dpi = GetWindowDpi(window);
             InitializeStochParameters();
             CreateControls(window);
+            if (g_chart_mode) {
+                for (HWND control : {g_app.open_button, g_app.new_window_button,
+                                     g_app.play_pause_button, g_app.prev_button,
+                                     g_app.next_button, g_app.speed_button}) {
+                    ShowWindow(control, SW_HIDE);
+                }
+            }
             SetTimer(window, kPlaybackTimerId, 33, nullptr);
             LoadDefaultDataset();
             return 0;
@@ -2021,7 +3078,20 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
         case WM_SIZE:
             LayoutControls();
             InvalidateRect(window, nullptr, FALSE);
+            if (g_chart_mode) SendChartState();
             return 0;
+
+        case WM_COPYDATA:
+            if (g_chart_mode && l_param != 0) {
+                const auto* data = reinterpret_cast<const COPYDATASTRUCT*>(l_param);
+                if (data->lpData != nullptr && data->cbData >= sizeof(wchar_t)) {
+                    const auto* text = static_cast<const wchar_t*>(data->lpData);
+                    const std::size_t length = data->cbData / sizeof(wchar_t);
+                    HandleChartIpcMessage(std::wstring(text, text + (length > 0 && text[length - 1] == L'\0' ? length - 1 : length)));
+                }
+                return TRUE;
+            }
+            break;
 
         case WM_COMMAND: {
             const int command = LOWORD(w_param);
@@ -2034,6 +3104,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
                     return 0;
                 case kStatusButton:
                     g_app.status_visible = !g_app.status_visible;
+                    PersistChartProjectSnapshot();
+                    SendChartState();
                     LayoutControls();
                     RefreshUiState();
                     return 0;
@@ -2182,6 +3254,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
             if (g_app.chart_drag_active) {
                 g_app.chart_drag_active = false;
                 ReleaseCapture();
+                PersistChartProjectSnapshot();
+                SendChartState();
                 return 0;
             }
             break;
@@ -2243,6 +3317,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
                         CancelTrendlineDraft();
                     } else if (!g_app.trendlines.empty()) {
                         g_app.trendlines.pop_back();
+                        PersistChartProjectSnapshot();
                         InvalidateRect(window, nullptr, FALSE);
                     }
                     return 0;
@@ -2276,6 +3351,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_
         }
 
         case WM_DESTROY:
+            if (g_chart_mode && g_app.console_window != nullptr) {
+                PersistChartProjectSnapshot();
+                SendWindowTextMessage(g_app.console_window, L"CLOSE|" + g_app.chart_window_id);
+            }
             if (g_app.ui_font != nullptr) {
                 DeleteObject(g_app.ui_font);
                 g_app.ui_font = nullptr;
@@ -2304,11 +3383,37 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     controls.dwICC = ICC_BAR_CLASSES;
     InitCommonControlsEx(&controls);
 
-    const wchar_t* class_name = L"BtcUsdReplayWindow";
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    for (int index = 1; argv != nullptr && index < argc; ++index) {
+        const std::wstring argument = argv[index];
+        if (argument == L"--chart") {
+            g_chart_mode = true;
+        } else if (argument == L"--elevated") {
+            g_elevated_attempt = true;
+        } else if (argument.rfind(L"--console-hwnd=", 0) == 0) {
+            try {
+                g_console_window_from_args = reinterpret_cast<HWND>(static_cast<UINT_PTR>(
+                    std::stoull(argument.substr(15))));
+            } catch (...) {
+            }
+        } else if (argument.rfind(L"--project-id=", 0) == 0) {
+            g_project_id_from_args = argument.substr(13);
+        } else if (argument.rfind(L"--window-id=", 0) == 0) {
+            g_chart_window_id_from_args = argument.substr(12);
+        }
+    }
+
+    if (g_chart_mode) {
+        g_app.console_window = g_console_window_from_args;
+        g_app.chart_window_id = g_chart_window_id_from_args;
+    }
+
+    const wchar_t* class_name = g_chart_mode ? L"BtcUsdReplayWindow" : L"BtcUsdReplayConsole";
     WNDCLASSEXW window_class{};
     window_class.cbSize = sizeof(window_class);
     window_class.style = CS_HREDRAW | CS_VREDRAW;
-    window_class.lpfnWndProc = WindowProc;
+    window_class.lpfnWndProc = g_chart_mode ? WindowProc : ConsoleWindowProc;
     window_class.hInstance = instance;
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
@@ -2319,12 +3424,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     constexpr DWORD kWindowStyle = WS_OVERLAPPEDWINDOW;
     constexpr DWORD kWindowExStyle = 0;
     g_app.dpi = GetSystemDpi();
-    const RECT window_rect = ScaleWindowRectForDpi(g_app.dpi, 1360, 820, kWindowStyle, kWindowExStyle);
+    const RECT window_rect = ScaleWindowRectForDpi(g_app.dpi,
+        g_chart_mode ? 1360 : 900, g_chart_mode ? 820 : 190, kWindowStyle, kWindowExStyle);
 
     HWND window = CreateWindowExW(
         kWindowExStyle,
         class_name,
-        L"BTCUSD Replay",
+        g_chart_mode ? L"BTCUSD Replay Chart" : L"BTCUSD Replay Playback Console",
         kWindowStyle,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
@@ -2340,19 +3446,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
         return 0;
     }
 
-    ShowWindow(window, show_command);
+    ShowWindow(window, show_command == SW_HIDE ? SW_SHOWNORMAL : show_command);
     UpdateWindow(window);
 
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (argv != nullptr && argc >= 2) {
-        std::string error;
-        std::vector<Candle> candles = LoadCandlesFromCsv(argv[1], &error);
-        if (!candles.empty()) {
-            LoadBaseCandles(std::move(candles), argv[1]);
-        } else if (!error.empty()) {
-            ShowLoadError(error);
+    if (g_chart_mode) {
+        ProjectRecord project;
+        if (!g_project_id_from_args.empty() && LoadProject(g_project_id_from_args, &project, nullptr) &&
+            LoadProjectIntoChart(g_project_id_from_args)) {
+            RestoreChartWindowState(project, g_chart_window_id_from_args);
+        } else {
+            LoadDefaultDataset();
         }
+        SendChartRegistration();
+        SendChartState();
     }
     if (argv != nullptr) {
         LocalFree(argv);

@@ -1,3 +1,6 @@
 /BtcUsdReplay.exe
 /BtcUsdReplay-static.exe
 tools/__pycache__/
+/build/
+/projects/
+/data/

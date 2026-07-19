@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(BtcUsdReplay WIN32
     src/data_feed.cpp
+    src/project_store.cpp
     src/stoch_indicator.cpp
     src/main.cpp
 )
