@@ -20,6 +20,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _MSC_VER
@@ -227,7 +228,7 @@ struct AppState {
     StochSeries stoch_series;
 };
 
-AppState g_app;
+thread_local AppState g_app;
 
 struct ConsoleChild {
     std::wstring id;
@@ -260,10 +261,10 @@ struct ConsoleState {
 };
 
 ConsoleState g_console;
-bool g_chart_mode = false;
-HWND g_console_window_from_args = nullptr;
-std::wstring g_project_id_from_args;
-std::wstring g_chart_window_id_from_args;
+thread_local bool g_chart_mode = false;
+thread_local HWND g_console_window_from_args = nullptr;
+thread_local std::wstring g_project_id_from_args;
+thread_local std::wstring g_chart_window_id_from_args;
 bool g_elevated_attempt = false;
 
 RECT ChartRect();
@@ -271,6 +272,7 @@ void InvalidateChartAndStatus();
 void CancelTrendlineDraft();
 std::size_t TimeframeIndex(Timeframe timeframe);
 void PersistChartProjectSnapshot();
+LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);
 
 bool SendWindowTextMessage(HWND target, const std::wstring& text) {
     if (target == nullptr || !IsWindow(target)) {
@@ -2531,25 +2533,65 @@ void CloseConsoleCharts() {
     g_console.children.clear();
 }
 
-void LaunchChartWindow(const StoredWindow& stored) {
-    wchar_t module_path[MAX_PATH] = {};
-    const DWORD length = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH) return;
-    std::wostringstream command;
-    command << L"\"" << module_path << L"\" --chart --console-hwnd="
-            << reinterpret_cast<UINT_PTR>(g_console.window) << L" --project-id=\""
-            << g_console.project.id << L"\" --window-id=\"" << stored.id << L"\"";
-    std::wstring command_text = command.str();
-    std::vector<wchar_t> mutable_command(command_text.begin(), command_text.end());
-    mutable_command.push_back(L'\0');
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    if (CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr, FALSE, 0, nullptr,
-        nullptr, &startup, &process) != FALSE) {
-        CloseHandle(process.hThread);
-        CloseHandle(process.hProcess);
+struct ChartThreadArguments {
+    HWND console_window = nullptr;
+    std::wstring project_id;
+    std::wstring window_id;
+};
+
+void ChartThreadMain(ChartThreadArguments arguments) {
+    g_chart_mode = true;
+    g_console_window_from_args = arguments.console_window;
+    g_project_id_from_args = std::move(arguments.project_id);
+    g_chart_window_id_from_args = std::move(arguments.window_id);
+    g_app.console_window = g_console_window_from_args;
+    g_app.chart_window_id = g_chart_window_id_from_args;
+    g_app.dpi = GetSystemDpi();
+
+    constexpr DWORD window_style = WS_OVERLAPPEDWINDOW;
+    constexpr DWORD window_ex_style = 0;
+    const RECT window_rect = ScaleWindowRectForDpi(g_app.dpi, 1360, 820,
+        window_style, window_ex_style);
+    HWND window = CreateWindowExW(
+        window_ex_style,
+        L"BtcUsdReplayWindow",
+        L"BTCUSD Replay Chart",
+        window_style,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        window_rect.right - window_rect.left,
+        window_rect.bottom - window_rect.top,
+        nullptr,
+        nullptr,
+        GetModuleHandleW(nullptr),
+        nullptr);
+    if (window == nullptr) return;
+
+    ShowWindow(window, SW_SHOWNORMAL);
+    UpdateWindow(window);
+    ProjectRecord project;
+    if (!g_project_id_from_args.empty() && LoadProject(g_project_id_from_args, &project, nullptr) &&
+        LoadProjectIntoChart(g_project_id_from_args)) {
+        RestoreChartWindowState(project, g_chart_window_id_from_args);
+    } else {
+        LoadDefaultDataset();
     }
+    SendChartRegistration();
+    SendChartState();
+
+    MSG message{};
+    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+}
+
+void LaunchChartWindow(const StoredWindow& stored) {
+    ChartThreadArguments arguments;
+    arguments.console_window = g_console.window;
+    arguments.project_id = g_console.project.id;
+    arguments.window_id = stored.id;
+    std::thread(ChartThreadMain, std::move(arguments)).detach();
 }
 
 void RestoreConsoleCharts() {
@@ -3420,6 +3462,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     window_class.lpszClassName = class_name;
 
     RegisterClassExW(&window_class);
+    if (!g_chart_mode) {
+        WNDCLASSEXW chart_class = window_class;
+        chart_class.lpfnWndProc = WindowProc;
+        chart_class.lpszClassName = L"BtcUsdReplayWindow";
+        RegisterClassExW(&chart_class);
+    }
 
     constexpr DWORD kWindowStyle = WS_OVERLAPPEDWINDOW;
     constexpr DWORD kWindowExStyle = 0;
