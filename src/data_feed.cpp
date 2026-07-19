@@ -161,16 +161,35 @@ std::int64_t WeekBucketStart(std::int64_t timestamp) {
     return (days - monday_based_weekday) * kDaySeconds;
 }
 
+std::int64_t MonthBucketStart(std::int64_t timestamp) {
+    std::tm month = GmTime(timestamp);
+    month.tm_mday = 1;
+    month.tm_hour = 0;
+    month.tm_min = 0;
+    month.tm_sec = 0;
+    return ToUnixTimestampUtc(month);
+}
+
 std::int64_t BucketStart(std::int64_t timestamp, Timeframe timeframe) {
     switch (timeframe) {
+        case Timeframe::M1:
+            return (timestamp / 60) * 60;
+        case Timeframe::M15:
+            return (timestamp / (15 * 60)) * (15 * 60);
+        case Timeframe::M30:
+            return (timestamp / (30 * 60)) * (30 * 60);
         case Timeframe::H1:
             return (timestamp / 3600) * 3600;
+        case Timeframe::H2:
+            return (timestamp / (2 * 3600)) * (2 * 3600);
         case Timeframe::H4:
             return (timestamp / (4 * 3600)) * (4 * 3600);
         case Timeframe::D1:
             return (timestamp / (24 * 3600)) * (24 * 3600);
         case Timeframe::W1:
             return WeekBucketStart(timestamp);
+        case Timeframe::MN1:
+            return MonthBucketStart(timestamp);
     }
 
     return timestamp;
@@ -180,14 +199,24 @@ std::int64_t BucketStart(std::int64_t timestamp, Timeframe timeframe) {
 
 std::wstring TimeframeLabel(Timeframe timeframe) {
     switch (timeframe) {
+        case Timeframe::M1:
+            return L"1m";
+        case Timeframe::M15:
+            return L"15m";
+        case Timeframe::M30:
+            return L"30m";
         case Timeframe::H1:
-            return L"1H";
+            return L"1h";
+        case Timeframe::H2:
+            return L"2h";
         case Timeframe::H4:
-            return L"4H";
+            return L"4h";
         case Timeframe::D1:
             return L"D";
         case Timeframe::W1:
             return L"W";
+        case Timeframe::MN1:
+            return L"M";
     }
 
     return L"?";

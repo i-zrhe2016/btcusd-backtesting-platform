@@ -5,10 +5,15 @@
 #include <vector>
 
 enum class Timeframe {
+    M1,
+    M15,
+    M30,
     H1,
+    H2,
     H4,
     D1,
     W1,
+    MN1,
 };
 
 struct Candle {
