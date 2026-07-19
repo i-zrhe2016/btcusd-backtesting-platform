@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -21,9 +22,13 @@ START_UTC = dt.datetime(2016, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
 END_UTC = dt.datetime(2026, 7, 20, 0, 0, 0, tzinfo=dt.timezone.utc)
 GRANULARITY_SECONDS = 60
 MAX_CANDLES_PER_REQUEST = 300
-REQUEST_PAUSE_SECONDS = 0.08
+# Coinbase's public candle endpoint rate-limits aggressively. Space request
+# starts globally across the worker pool instead of sleeping after a response.
+REQUEST_PAUSE_SECONDS = 0.12
 MAX_RETRIES = 5
 FETCH_WORKERS = 6
+REQUEST_SLOT_LOCK = threading.Lock()
+NEXT_REQUEST_TIME = 0.0
 
 
 def isoformat_z(value: dt.datetime) -> str:
@@ -43,6 +48,13 @@ def fetch_chunk(start_utc: dt.datetime, end_utc: dt.datetime) -> list[list[float
     last_error: Exception | None = None
     for attempt in range(MAX_RETRIES):
         try:
+            global NEXT_REQUEST_TIME
+            with REQUEST_SLOT_LOCK:
+                now = time.monotonic()
+                wait_seconds = max(0.0, NEXT_REQUEST_TIME - now)
+                NEXT_REQUEST_TIME = max(now, NEXT_REQUEST_TIME) + REQUEST_PAUSE_SECONDS
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
             # curl is used here because it reuses the system TLS stack more
             # reliably than urllib in the Windows/Linux build environments.
             result = subprocess.run(
@@ -66,7 +78,11 @@ def fetch_chunk(start_utc: dt.datetime, end_utc: dt.datetime) -> list[list[float
             return data
         except (subprocess.TimeoutExpired, TimeoutError, json.JSONDecodeError, RuntimeError) as exc:
             last_error = exc
-            time.sleep((attempt + 1) * 0.6)
+            error_text = str(exc)
+            if "429" in error_text:
+                time.sleep(10.0 * (2 ** attempt))
+            else:
+                time.sleep((attempt + 1) * 0.6)
 
     raise RuntimeError(f"Failed to fetch {start_utc} - {end_utc}: {last_error}")
 
@@ -206,9 +222,6 @@ def main() -> int:
                         candle_count += 1
                     if completed % 100 == 0 or completed == len(chunks):
                         print(f"Fetched {completed}/{len(chunks)} chunks", flush=True)
-                    if REQUEST_PAUSE_SECONDS > 0:
-                        time.sleep(REQUEST_PAUSE_SECONDS)
-
         if candle_count == 0:
             raise RuntimeError("No BTC-USD candles were fetched.")
 
