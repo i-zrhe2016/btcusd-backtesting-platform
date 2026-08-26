@@ -1,0 +1,28 @@
+@startuml
+!theme plain
+left to right direction
+title BTCUSD Backtesting Platform - Containers
+
+skinparam backgroundColor #FAFAFA
+skinparam ArrowColor #334155
+skinparam componentBorderColor #475569
+
+actor "浏览器" as browser
+
+node "单台 Linux 服务器 / Docker Compose" {
+  component "Nginx + Vue 3\nweb : 80/443" as web #DBEAFE
+  component "Market Data\nRust + Axum : 8081" as market #DCFCE7
+  component "Backtest\nRust + Axum : 8082" as backtest #FEF3C7
+  database "PostgreSQL\n用户、配置、回测" as postgres #EDE9FE
+  file "BTCUSD 1m Parquet\n只读" as parquet #F1F5F9
+}
+
+browser --> web : HTTPS
+web --> market : /api/market/*\nHTTP 私网
+web --> backtest : /api/backtests*\n/api/configs*
+backtest --> market : 市场快照\nHTTP 私网
+backtest --> postgres : SQL / 连接池
+market --> parquet : 启动加载、范围读取
+
+@enduml
+

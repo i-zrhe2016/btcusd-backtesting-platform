@@ -1,0 +1,37 @@
+@startuml
+!theme plain
+title 创建一次回测
+
+actor "用户" as user
+participant "Vue" as vue
+participant "Nginx" as nginx
+participant "Backtest" as backtest
+database "PostgreSQL" as db
+participant "Market Data" as market
+participant "Parquet File" as parquet
+
+user -> vue : 提交策略参数
+vue -> nginx : POST /api/backtests
+nginx -> backtest : 转发 JSON
+backtest -> backtest : 校验请求
+backtest -> db : INSERT status=running
+db --> backtest : backtest id
+backtest -> market : GET /api/market/snapshot
+market -> parquet : 筛选并聚合 OHLCV
+parquet --> market : 1m candles
+market -> market : 计算三组 Stoch
+market --> backtest : candles + stochastic
+backtest -> backtest : 执行策略、计算指标
+backtest -> db : UPDATE status=completed + result
+db --> backtest : 完整记录
+backtest --> nginx : 200 JSON
+nginx --> vue : 回测结果
+vue --> user : 指标与交易明细
+
+alt 行情或计算失败
+  backtest -> db : UPDATE status=failed + error
+  backtest --> nginx : 502/500 JSON
+  nginx --> vue : 可恢复错误
+end
+
+@enduml

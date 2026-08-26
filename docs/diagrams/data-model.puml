@@ -1,0 +1,40 @@
+@startuml
+!theme plain
+left to right direction
+title PostgreSQL Data Model
+
+entity "users" as users {
+  * id : uuid <<PK>>
+  --
+  * email : text <<UQ>>
+  * display_name : text
+  * created_at : timestamptz
+}
+
+entity "strategy_configs" as configs {
+  * id : uuid <<PK>>
+  --
+  * user_id : uuid <<FK>>
+  * name : text
+  * parameters : jsonb
+  * created_at : timestamptz
+  * updated_at : timestamptz
+}
+
+entity "backtests" as backtests {
+  * id : uuid <<PK>>
+  --
+  * user_id : uuid <<FK>>
+  * name : text
+  * status : text
+  * config : jsonb
+  result : jsonb
+  error_message : text
+  * created_at : timestamptz
+  completed_at : timestamptz
+}
+
+users ||--o{ configs : owns
+users ||--o{ backtests : runs
+
+@enduml

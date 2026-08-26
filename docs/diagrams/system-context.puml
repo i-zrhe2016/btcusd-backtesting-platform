@@ -1,0 +1,22 @@
+@startuml
+!theme plain
+left to right direction
+title BTCUSD Backtesting Platform - System Context
+
+skinparam backgroundColor #FAFAFA
+skinparam ArrowColor #334155
+skinparam defaultFontColor #0F172A
+
+actor "研究用户" as user
+rectangle "BTCUSD 回测平台\nWeb + API" as platform #DBEAFE
+rectangle "旧 Windows 客户端\n迁移期间只读基准" as legacy #E2E8F0
+cloud "历史行情来源\nCoinbase / 导入文件" as source #FEF3C7
+rectangle "备份存储" as backup #DCFCE7
+
+user --> platform : HTTPS\n查看 K 线、提交回测
+user ..> legacy : M2 完成前保留
+source --> platform : 离线生成 Parquet
+platform --> backup : 数据库备份\nParquet 版本归档
+
+@enduml
+

@@ -1,0 +1,38 @@
+@startuml
+!theme plain
+top to bottom direction
+title 单机 Docker Compose 部署
+
+skinparam backgroundColor #FAFAFA
+skinparam ArrowColor #334155
+
+cloud "Internet" as internet
+node "防火墙\n仅 80/443" as firewall #FEE2E2
+
+node "Linux Host" {
+  folder "只读宿主机文件" {
+    file "TLS 证书" as cert
+    file "btcusd_1m.parquet\nmanifest.json" as data
+  }
+
+  node "Docker Compose private network" {
+    component "web\nNginx + Vue" as web #DBEAFE
+    component "market-data" as market #DCFCE7
+    component "backtest" as backtest #FEF3C7
+    database "postgres" as postgres #EDE9FE
+    storage "postgres_data volume" as volume
+  }
+}
+
+internet --> firewall : HTTPS / HTTP redirect
+firewall --> web : 443 / 80
+cert --> web : read-only mount
+data --> market : read-only mount
+web --> market : internal HTTP
+web --> backtest : internal HTTP
+backtest --> market : internal HTTP
+backtest --> postgres : PostgreSQL protocol
+postgres --> volume : persistent storage
+
+@enduml
+

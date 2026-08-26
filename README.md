@@ -1,179 +1,37 @@
-# BTCUSD Replay Tool
+# BTCUSD Backtesting Platform
 
-一个运行在 Windows 上的纯 C++ BTCUSD 复盘工具，使用 Win32 API + GDI 实现，不依赖 Qt、SDL 或浏览器壳。
+BTCUSD 历史行情浏览与策略回测平台。项目正在从 Windows/C++ 桌面程序迁移到可在单台服务器部署的 Web 服务架构。
 
-支持功能：
+> 当前状态：架构文档评审阶段。`services/` 下的代码是尚未按文档验收的实现草稿；文档评审通过前不应作为稳定版本部署。
 
-- BTCUSD K 线回放
-- 播放 / 暂停
-- 倍速播放：`x1 / x2 / x4 / x8`
-- 周期切换：`1m / 15m / 30m / 1h / 2h / 4h / D / W / M`
-- 输入日期并点击 `Go Date` 定位到指定日期
-- 在价格图或 Stoch 图上滚动鼠标滚轮缩放，缩放级别显示在状态栏
-- 滚轮缩放范围：`0.25x - 16x`，可以显示更多 K 线或放大观察单根 K 线
-- 在价格图中按住鼠标左键左右拖拽，可手动平移 K 线视图；播放或单步后恢复跟随回放
-- `CSV` 文件导入
-- 内嵌 `Playback Console`：主窗口顶部工具栏直接提供项目、播放、暂停、单步、速度和日期定位控制，下面就是 K 线图
-- 多图表窗口联动：不同窗口可以显示不同周期，并共享同一个 UTC 回放时间；主窗口和所有附加图表都运行在同一个 EXE 进程中
-- 项目式复盘：项目、CSV 副本和回放进度都保存在程序目录
-- 无文件时自动加载内置真实 `BTC-USD` 2016-01-01 至 2026-07-19 的 1 分钟数据
-- `stoch_btc_v9_k5_optimized` 随机指标副图
-- 按周期修改五组随机指标参数
-- 可配置播放、单步、周期切换、倍速和指标快捷键
+## 文档索引
 
-## 内置真实数据
+| 模块 | 文档 |
+| --- | --- |
+| 总体架构 | [系统概览](docs/architecture/overview.md) |
+| 服务拆分 | [服务边界](docs/architecture/service-boundaries.md) |
+| 架构决策 | [关键决策记录](docs/architecture/decisions.md) |
+| 前端 | [Vue Web 应用](docs/frontend/web-app.md) |
+| 行情接口 | [Market Data API](docs/api/market-data.md) |
+| 回测接口 | [Backtest API](docs/api/backtest.md) |
+| 数据库 | [PostgreSQL Schema](docs/database/schema.md) |
+| 行情文件 | [Parquet 数据规范](docs/data/parquet.md) |
+| 部署 | [Docker Compose 与 HTTPS](docs/deployment/docker-compose.md) |
+| 运维 | [运行手册](docs/operations/runbook.md) |
+| 安全 | [安全边界](docs/security/security.md) |
+| 旧系统迁移 | [Windows 客户端迁移](docs/migration/windows-client.md) |
+| 验收 | [测试与验收标准](docs/testing/acceptance.md) |
 
-当前 exe 已内置官方交易所的 `BTC-USD` 1 分钟 K 线数据：
+## 目标技术栈
 
-- 来源：`Coinbase Exchange`
-- 覆盖范围：`2016-01-01 00:00 UTC` 至 `2018-12-31 23:59 UTC`
-- 基础周期：`1m`
-- 程序中的 `15m / 30m / 1h / 2h / 4h / D / W / M` 都由内置 `1m` 数据聚合得到
-- Coinbase 历史数据中的缺失分钟保留为空档，程序不会用模拟数据填补
+| 层 | 技术 | 作用 |
+| --- | --- | --- |
+| 前端 | Vue 3 + TypeScript + Vite | 页面、K 线和回测交互 |
+| 行情服务 | Rust + Axum | Parquet 查询、周期聚合、指标计算 |
+| 回测服务 | Rust + Axum | 策略执行、配置和回测记录 |
+| 数据库 | PostgreSQL | 用户、策略配置、回测状态与结果 |
+| 行情文件 | Parquet | BTCUSD 历史 OHLCV |
+| Web 入口 | Nginx | HTTPS、静态文件和 API 反向代理 |
+| 部署 | Docker Compose | 单台 Linux 服务器部署 |
 
-生成脚本：
-
-```powershell
-python tools\fetch_coinbase_btcusd.py
-```
-
-脚本每次固定生成 `2016-01-01` 至 `2026-07-20`（结束时间为开区间，因此包含到
-`2026-07-19 23:59 UTC`）的 1 分钟数据，并将结果写入
-`src/embedded_btcusd_data.h`。Coinbase 每次最多返回 300 根 1 分钟 K 线，脚本会分片抓取、重试并去重。
-
-由于完整十年 1 分钟数据体积很大，GitHub Actions 只在 `v*` 标签发布构建时抓取并编译这份完整内置数据；仓库源码保留可用于快速开发构建的较小数据快照。发布版 EXE 本身包含完整数据，不需要运行时联网。
-
-## CSV 格式
-
-按以下列顺序读取前 5 列：
-
-```csv
-timestamp,open,high,low,close
-2025-01-01 00:00:00,42000,42120,41880,42080
-2025-01-01 01:00:00,42080,42210,42010,42155
-```
-
-时间字段支持：
-
-- Unix 秒时间戳
-- Unix 毫秒时间戳
-- `YYYY-MM-DD HH:MM:SS`
-- `YYYY-MM-DDTHH:MM:SS`
-- `YYYY-MM-DD`
-
-## Windows 构建
-
-使用 Visual Studio 2022：
-
-```powershell
-cmake -S . -B build -G "Visual Studio 17 2022"
-cmake --build build --config Release
-```
-
-生成后的程序：
-
-```text
-build\Release\BtcUsdReplay.exe
-```
-
-## GitHub Actions
-
-仓库已包含 Windows 编译工作流：
-
-- 文件：`.github/workflows/build.yml`
-- 触发：`push(main)`、`push tag(v*)`、`pull_request`、手动 `workflow_dispatch`
-- 环境：`windows-latest` + `MSYS2 MINGW64` + `CMake`
-- 产物：artifact `btcusd-replay-windows-x64`，包含 `BtcUsdReplay.exe`、SHA256 和便携式程序目录 ZIP
-- Release：推送如 `v1.0.0` 这样的 tag 后，会自动创建或更新同名 GitHub Release，并上传 EXE、SHA256 和完整便携式 ZIP
-- Latest：每次推送 `main` 并成功构建后，会自动更新 `latest` Release，可下载最新 EXE、SHA256 和 ZIP
-
-## 用法
-
-直接运行：
-
-```powershell
-.\build\Release\BtcUsdReplay.exe
-```
-
-直接运行后会打开一个包含 K 线和内嵌 `Playback Console` 的主窗口。控制台不是独立程序，也不会单独启动另一个 EXE；播放控制、项目管理和日期定位都在主 K 线窗口的工具栏中。
-
-点击 `New Chart` 时，只会在当前 `BtcUsdReplay.exe` 进程中创建附加 K 线窗口，不会启动第二个程序。附加窗口可以分别选择不同周期，但会跟随主窗口共享 UTC 回放时间。
-
-项目文件和数据文件位于程序目录：
-
-```text
-projects\\*.replay
-projects\\last-project
-data\\sources\\*.csv
-```
-
-不传文件时会自动打开上次项目；首次运行会创建默认项目并使用 exe 内置的真实 `BTC-USD` 数据。
-
-CSV 数据请在控制台点击 `New Project`，填写项目日期范围后使用 `Browse CSV (optional)` 选择；程序会将 CSV 复制到程序目录的 `data\\sources`。
-
-## 操作
-
-- `Play / Pause`：主窗口内嵌的回放控制，联动所有图表窗口
-- `Step Back / Step Forward`：按基础 1m 数据时间轴前后移动，所有窗口同步
-- `Speed`：切换联动播放速度
-- `New Chart`：在当前程序进程中创建新的联动图表窗口
-- `Open Project`：打开程序目录 `projects` 中的项目，并重新绑定主 K 线窗口
-- `New Project`：新建项目，设置名称、开始日期、结束日期和可选 CSV 数据源
-- 主窗口关闭前会自动保存当前项目；重新打开后恢复最近项目、主图表和附加图表窗口布局
-- `1m / 15m / 30m / 1h / 2h / 4h / D / W / M`：切换 K 线周期
-- `Stoch 3`：显示或隐藏随机指标副图，指标固定显示前三组
-- `Stoch Params`：修改当前周期的五组 `length` 参数，点击 `Apply` 后立即重算；参数按周期分别保存
-- `Hotkeys`：修改播放、前后单步、倍速、趋势线、随机指标显示和全部周期切换快捷键
-- Buy / Sell 快捷键：在当前回放 K 线收盘价记录并绘制 Buy / Sell 标记，默认分别为 `B` / `V`
-- `Status On / Status Off`：显示或隐藏底部整体状态栏
-- `Date` + `Go Date`：输入 `YYYY-MM-DD`，定位到该日期当天的第一根 K 线
-- 拖动价格图和指标图之间的横向分隔条：调整指标副图高度
-
-多个图表窗口示例：
-
-```text
-主窗口（Playback Console + Chart 1: 1m）
-├─ Chart 2: 15m
-├─ Chart 3: 1h
-└─ Chart 4: D
-```
-
-控制台推进到同一个 UTC 时间后，各窗口显示该时间点对应周期的最后一根 K 线。例如共享时间为 `2018-06-15 12:37 UTC` 时，1m 窗口显示 12:37，15m 窗口显示 12:30，1h 窗口显示 12:00，D 窗口显示当天日线。
-
-快捷键：
-
-- `Space`：播放 / 暂停
-- `Left / Right`：前后单步
-- 默认周期快捷键：`6 / 5 / 3 / 1 / 2 / 4 / D / W / M`，分别切换 `1m / 15m / 30m / 1h / 2h / 4h / D / W / M`
-- `S`：切换倍速
-- `T`：切换趋势线绘制模式
-- `O`：显示或隐藏随机指标
-- `B`：记录 Buy 标记
-- `V`：记录 Sell 标记
-
-## Stoch 指标
-
-内置的 `stoch_btc_v9_k5_optimized` 使用与 Pine 脚本相同的计算方式：
-
-```text
-raw K = (close - lowest(close, length)) /
-        (highest(close, length) - lowest(close, length)) * 100
-K = SMA(raw K, round(length / 10 * 3))
-D = SMA(K, round(length / 10 * 3))
-```
-
-价格区间不变时 `raw K` 使用 50。副图固定绘制前三组 `k1/d1`、`k2/d2`、`k3/d3`，并绘制 20、50、80 三条参考线。当前支持的图表周期使用以下 Pine 参数：
-
-| 周期 | k1 | k2 | k3 | k4 | k5 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 1m | 30 | 120 | 840 | 240 | 840 |
-| 15m | 40 | 160 | 960 | 80 | 160 |
-| 30m | 30 | 120 | 480 | 480 | 1680 |
-| 1h | 30 | 120 | 840 | 240 | 840 |
-| 2h | 30 | 120 | 840 | 420 | 840 |
-| 4h | 30 | 210 | 840 | 840 | 1680 |
-| D | 10 | 70 | 280 | 280 | 840 |
-| W | 10 | 40 | 120 | 480 | 960 |
-| M | 10 | 30 | 120 | 240 | 480 |
-
-内置数据源是 1m，因此所有界面周期都可以由真实的 1m 数据聚合得到。导入高周期 CSV 时，程序仍不会把高周期 K 线伪拆分成低周期数据。
+旧 Win32/C++ 程序在迁移期间保存在 `legacy/windows-desktop/`，仅用于行为对照和数据迁移。
