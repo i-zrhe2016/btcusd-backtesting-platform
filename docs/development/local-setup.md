@@ -34,6 +34,14 @@ data/market/btcusd_1m.parquet
 
 该目录不应提交 Git。行情文件版本、覆盖范围和 SHA-256 记录方式见 [Parquet 行情数据规范](../data/parquet.md)。
 
+如果只需要本地 Compose 冒烟，可以生成最近几小时的 Coinbase BTC-USD 小样本：
+
+```bash
+cargo run -p market-data-service --example fetch_coinbase_fixture -- data/market/btcusd_1m.parquet
+```
+
+该命令会同时写入 `data/market/manifest.json`。它只用于开发验证，不替代生产历史数据构建流程。
+
 ## 安装依赖
 
 在仓库根目录安装前端依赖：

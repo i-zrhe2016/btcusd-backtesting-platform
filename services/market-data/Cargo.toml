@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 arrow-array = "56.1.0"
+arrow-schema = "56.1.0"
 axum.workspace = true
 chrono.workspace = true
 parquet = { version = "56.1.0", features = ["arrow"] }
@@ -17,4 +18,3 @@ tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-
