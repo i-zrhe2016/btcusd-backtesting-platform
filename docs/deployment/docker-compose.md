@@ -31,12 +31,17 @@
 | `POSTGRES_PASSWORD` | postgres/backtest | 生产必须使用随机密钥，不提交 Git |
 | `WEB_HTTP_PORT` | web | 默认 `80`，本机冲突时可改为其他宿主机端口 |
 | `WEB_HTTPS_PORT` | web | 默认 `443`，本机冲突时可改为其他宿主机端口 |
+| `WEB_CPUS` | web | 默认 `0.50`，限制 Nginx 与静态前端容器 CPU 配额 |
+| `MARKET_DATA_CPUS` | market-data | 默认 `0.75`，限制行情服务 CPU 配额 |
+| `BACKTEST_CPUS` | backtest | 默认 `1.00`，限制回测服务 CPU 配额 |
+| `POSTGRES_CPUS` | postgres | 默认 `0.50`，限制 PostgreSQL CPU 配额 |
 | `DATABASE_URL` | backtest | 由 Compose 从上述变量构造 |
 | `MARKET_DATA_URL` | backtest | `http://market-data:8081` |
 | `MARKET_DATA_PARQUET` | market-data | `/data/btcusd_1m.parquet` |
 | `RUST_LOG` | Rust 服务 | 默认 `info` |
 
 `.env.example` 只能包含无敏感默认值；生产 `.env` 权限设为 `0600` 并排除版本控制。
+CPU 配额由 Docker Compose 的 `cpus` 字段下发到容器，可按服务器规格在 `.env` 中调高或调低。
 
 ## HTTPS
 

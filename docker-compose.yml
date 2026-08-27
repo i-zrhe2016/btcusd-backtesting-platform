@@ -25,6 +25,7 @@ services:
     networks:
       - public
       - private
+    cpus: "${WEB_CPUS:-0.50}"
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
@@ -48,6 +49,7 @@ services:
         read_only: true
     networks:
       - private
+    cpus: "${MARKET_DATA_CPUS:-0.75}"
     read_only: true
     tmpfs:
       - /tmp
@@ -79,6 +81,7 @@ services:
       RUST_LOG: ${RUST_LOG:-info}
     networks:
       - private
+    cpus: "${BACKTEST_CPUS:-1.00}"
     read_only: true
     tmpfs:
       - /tmp
@@ -103,6 +106,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - private
+    cpus: "${POSTGRES_CPUS:-0.50}"
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
