@@ -9,3 +9,5 @@ tools/__pycache__/
 /frontend/dist/
 /.env
 /deployment/certs/
+/AGENTS.md
+/CLAUDE.md
