@@ -15,15 +15,16 @@ services:
       backtest:
         condition: service_healthy
     ports:
-      - "80:80"
-      - "443:443"
+      - "${WEB_HTTP_PORT:-80}:80"
+      - "${WEB_HTTPS_PORT:-443}:443"
     volumes:
       - type: bind
         source: ${TLS_CERT_DIR:-./deployment/certs}
         target: /etc/nginx/certs
         read_only: true
     networks:
-      - btcusd
+      - public
+      - private
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
@@ -46,7 +47,7 @@ services:
         target: /data
         read_only: true
     networks:
-      - btcusd
+      - private
     read_only: true
     tmpfs:
       - /tmp
@@ -77,7 +78,7 @@ services:
       MARKET_DATA_TIMEOUT_SECONDS: ${MARKET_DATA_TIMEOUT_SECONDS:-30}
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - btcusd
+      - private
     read_only: true
     tmpfs:
       - /tmp
@@ -101,7 +102,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
-      - btcusd
+      - private
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
@@ -111,7 +112,9 @@ services:
       retries: 5
 
 networks:
-  btcusd:
+  public:
+    driver: bridge
+  private:
     driver: bridge
     internal: true
 

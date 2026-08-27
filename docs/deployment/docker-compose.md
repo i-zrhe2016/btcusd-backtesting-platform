@@ -13,11 +13,12 @@
 
 ## Compose 资源
 
-- `web` 构建 Vue 静态文件并运行 Nginx，映射 `80:80` 和 `443:443`。
+- `web` 构建 Vue 静态文件并运行 Nginx，默认映射 `80:80` 和 `443:443`。
 - `market-data` 只读挂载 `./data/market:/data:ro`。
 - `backtest` 通过 `DATABASE_URL` 和 `MARKET_DATA_URL` 访问内部依赖。
 - `postgres` 使用命名 volume，固定主版本，启用健康检查。
-- 所有容器使用同一个私有 bridge 网络；除 `web` 外不映射宿主机端口。
+- `web` 同时加入公网入口 bridge 和私有后端 bridge；其他容器只加入私有后端 bridge。
+- 除 `web` 外不映射宿主机端口。
 
 仓库根目录提供 `docker-compose.yml`，生产部署前先复制 `.env.example` 为 `.env` 并替换 `POSTGRES_PASSWORD`。`.env` 不提交 Git。
 
@@ -28,6 +29,8 @@
 | `POSTGRES_DB` | postgres | `btcusd` |
 | `POSTGRES_USER` | postgres/backtest | `btcusd` |
 | `POSTGRES_PASSWORD` | postgres/backtest | 生产必须使用随机密钥，不提交 Git |
+| `WEB_HTTP_PORT` | web | 默认 `80`，本机冲突时可改为其他宿主机端口 |
+| `WEB_HTTPS_PORT` | web | 默认 `443`，本机冲突时可改为其他宿主机端口 |
 | `DATABASE_URL` | backtest | 由 Compose 从上述变量构造 |
 | `MARKET_DATA_URL` | backtest | `http://market-data:8081` |
 | `MARKET_DATA_PARQUET` | market-data | `/data/btcusd_1m.parquet` |
