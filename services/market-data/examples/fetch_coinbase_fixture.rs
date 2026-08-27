@@ -10,11 +10,7 @@ use anyhow::{bail, Context};
 use arrow_array::{ArrayRef, Float64Array, Int64Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
 use chrono::{SecondsFormat, TimeZone, Utc};
-use parquet::{
-    arrow::ArrowWriter,
-    basic::Compression,
-    file::properties::WriterProperties,
-};
+use parquet::{arrow::ArrowWriter, basic::Compression, file::properties::WriterProperties};
 use serde_json::json;
 
 #[derive(Debug)]
@@ -133,7 +129,10 @@ fn write_parquet(path: &PathBuf, candles: &[Candle]) -> anyhow::Result<()> {
         schema.clone(),
         vec![
             Arc::new(Int64Array::from(
-                candles.iter().map(|candle| candle.timestamp).collect::<Vec<_>>(),
+                candles
+                    .iter()
+                    .map(|candle| candle.timestamp)
+                    .collect::<Vec<_>>(),
             )) as ArrayRef,
             Arc::new(Float64Array::from(
                 candles.iter().map(|candle| candle.open).collect::<Vec<_>>(),
@@ -145,14 +144,21 @@ fn write_parquet(path: &PathBuf, candles: &[Candle]) -> anyhow::Result<()> {
                 candles.iter().map(|candle| candle.low).collect::<Vec<_>>(),
             )),
             Arc::new(Float64Array::from(
-                candles.iter().map(|candle| candle.close).collect::<Vec<_>>(),
+                candles
+                    .iter()
+                    .map(|candle| candle.close)
+                    .collect::<Vec<_>>(),
             )),
             Arc::new(Float64Array::from(
-                candles.iter().map(|candle| candle.volume).collect::<Vec<_>>(),
+                candles
+                    .iter()
+                    .map(|candle| candle.volume)
+                    .collect::<Vec<_>>(),
             )),
         ],
     )?;
-    let file = File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
+    let file =
+        File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
     let properties = WriterProperties::builder()
         .set_compression(Compression::SNAPPY)
         .build();
