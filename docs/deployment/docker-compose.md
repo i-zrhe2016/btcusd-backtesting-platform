@@ -19,6 +19,8 @@
 - `postgres` 使用命名 volume，固定主版本，启用健康检查。
 - 所有容器使用同一个私有 bridge 网络；除 `web` 外不映射宿主机端口。
 
+仓库根目录提供 `docker-compose.yml`，生产部署前先复制 `.env.example` 为 `.env` 并替换 `POSTGRES_PASSWORD`。`.env` 不提交 Git。
+
 ## 环境变量
 
 | 名称 | 容器 | 默认/要求 |
@@ -36,10 +38,32 @@
 ## HTTPS
 
 - HTTP 入口只执行 `301` 重定向到同一主机 HTTPS。
-- 生产证书只读挂载为 `/etc/nginx/certs/fullchain.pem` 和 `privkey.pem`。
+- 生产证书只读挂载为 `/etc/nginx/certs/fullchain.pem` 和 `privkey.pem`；Nginx 启动脚本会把它们链接到运行时目录 `/run/nginx-certs/`。
+- 未挂载证书时，容器会生成 7 天有效的 localhost 自签名证书，仅用于本地 Compose 冒烟。
 - Nginx 只启用 TLS 1.2/1.3，并设置 HSTS、`X-Content-Type-Options`、`Referrer-Policy` 和最小权限 CSP。
 - 本地开发可生成自签名证书；浏览器警告是预期行为，不能把自签名证书用于公网。
 - 证书续期由宿主机 Certbot 或同等工具处理；续期后执行 `nginx -s reload`，无需重启后端。
+
+## 配置校验
+
+在没有行情文件和证书的机器上也可以先校验 Compose 语法：
+
+```bash
+docker compose config
+```
+
+有 `data/market/btcusd_1m.parquet` 后执行完整构建和启动：
+
+```bash
+docker compose up -d --build
+```
+
+公网入口检查：
+
+```bash
+curl -I http://localhost/
+curl -k https://localhost/healthz
+```
 
 ## 发布流程
 
@@ -51,4 +75,3 @@
 6. 运行一条固定参数的冒烟回测，与基准结果比较。
 
 数据库迁移失败、行情文件校验失败或冒烟结果不一致时停止发布并回滚镜像；不得跳过校验继续上线。
-

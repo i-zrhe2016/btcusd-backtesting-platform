@@ -1,0 +1,119 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      market-data:
+        condition: service_healthy
+      backtest:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - type: bind
+        source: ${TLS_CERT_DIR:-./deployment/certs}
+        target: /etc/nginx/certs
+        read_only: true
+    networks:
+      - btcusd
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  market-data:
+    build:
+      context: .
+      dockerfile: services/market-data/Dockerfile
+    environment:
+      MARKET_DATA_BIND: 0.0.0.0:8081
+      MARKET_DATA_PARQUET: ${MARKET_DATA_PARQUET:-/data/btcusd_1m.parquet}
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - type: bind
+        source: ./data/market
+        target: /data
+        read_only: true
+    networks:
+      - btcusd
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  backtest:
+    build:
+      context: .
+      dockerfile: services/backtest/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      market-data:
+        condition: service_healthy
+    environment:
+      BACKTEST_BIND: 0.0.0.0:8082
+      DATABASE_URL: postgres://${POSTGRES_USER:-btcusd}:${POSTGRES_PASSWORD:-btcusd}@postgres:5432/${POSTGRES_DB:-btcusd}
+      MARKET_DATA_URL: http://market-data:8081
+      MARKET_DATA_TIMEOUT_SECONDS: ${MARKET_DATA_TIMEOUT_SECONDS:-30}
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - btcusd
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8082/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-btcusd}
+      POSTGRES_USER: ${POSTGRES_USER:-btcusd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-btcusd}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - btcusd
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  btcusd:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres-data:

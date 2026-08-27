@@ -1,0 +1,33 @@
+@startuml
+!theme plain
+
+title BTCUSD Backtesting Platform - Local Development
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam ArrowColor #334155
+skinparam DefaultFontName Verdana
+
+actor "Developer\nBrowser" as browser
+rectangle "Local Machine" {
+  component "Vite Dev Server\nlocalhost:5173" as vite #DBEAFE
+  component "Market Data Service\n127.0.0.1:8081" as market #DCFCE7
+  component "Backtest Service\n127.0.0.1:8082" as backtest #FEF3C7
+  database "PostgreSQL\nlocalhost:5432" as postgres #EDE9FE
+  file "data/market/\nbtcusd_1m.parquet" as parquet #F1F5F9
+}
+
+browser --> vite : HTTP
+vite --> market : "/api/market/*"
+vite --> backtest : "/api/backtests*, /api/configs*"
+backtest --> market : "MARKET_DATA_URL"
+backtest --> postgres : "DATABASE_URL"
+market --> parquet : "MARKET_DATA_PARQUET"
+
+note bottom of vite
+Nginx and HTTPS are not required
+for local development.
+end note
+
+@enduml
