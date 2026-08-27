@@ -14,10 +14,17 @@ import { RotateCcw, ZoomIn, ZoomOut } from '@lucide/vue'
 import type { MarketSnapshot } from '../types'
 import { formatNumber, formatUtc } from '../format'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   snapshot: MarketSnapshot | null
   loading: boolean
-}>()
+  playbackIndex?: number
+  playing?: boolean
+  projectName?: string
+}>(), {
+  playbackIndex: undefined,
+  playing: false,
+  projectName: '',
+})
 
 const priceContainer = ref<HTMLElement | null>(null)
 const stochContainer = ref<HTMLElement | null>(null)
@@ -25,46 +32,107 @@ const newestFirst = ref(true)
 let priceChart: IChartApi | null = null
 let stochChart: IChartApi | null = null
 let candleSeries: ISeriesApi<'Candlestick'> | null = null
+let stochasticSeries: Array<{ k: ISeriesApi<'Line'>; d: ISeriesApi<'Line'> }> = []
 let resizeObserver: ResizeObserver | null = null
 let syncing = false
+let needsFit = true
+
+const totalCandles = computed(() => props.snapshot?.candles.length ?? 0)
+
+const visibleCount = computed(() => {
+  const total = totalCandles.value
+  if (!total) return 0
+  const cursor = props.playbackIndex ?? total - 1
+  return Math.min(Math.max(cursor + 1, 1), total)
+})
+
+const visibleCandles = computed(() => props.snapshot?.candles.slice(0, visibleCount.value) ?? [])
+const visibleStochastic = computed(() => props.snapshot?.stochastic.slice(0, visibleCount.value) ?? [])
+const currentCandle = computed(() => visibleCandles.value.at(-1) ?? null)
 
 const tableCandles = computed(() => {
-  const candles = props.snapshot?.candles.slice(-12) ?? []
-  return newestFirst.value ? candles.reverse() : candles
+  const candles = visibleCandles.value.slice(-12)
+  return newestFirst.value ? [...candles].reverse() : candles
 })
 
 const summary = computed(() => {
-  const candles = props.snapshot?.candles ?? []
+  const candles = visibleCandles.value
   if (!candles.length) return '当前范围没有 K 线数据。'
   const first = candles[0]
-  const last = candles[candles.length - 1]
+  const last = currentCandle.value ?? candles[candles.length - 1]
   const change = ((last.close / first.open) - 1) * 100
-  return `${candles.length} 根 ${props.snapshot?.timeframe} K 线，从 ${formatUtc(first.timestamp)} 至 ${formatUtc(last.timestamp)} UTC，区间涨跌 ${change >= 0 ? '上涨' : '下跌'} ${Math.abs(change).toFixed(2)}%。`
+  const progress = totalCandles.value ? `${candles.length}/${totalCandles.value}` : `${candles.length}`
+  return `${props.projectName ? `${props.projectName} · ` : ''}${progress} 根 ${props.snapshot?.timeframe} K 线，从 ${formatUtc(first.timestamp)} 至 ${formatUtc(last.timestamp)} UTC，区间涨跌 ${change >= 0 ? '上涨' : '下跌'} ${Math.abs(change).toFixed(2)}%。`
 })
 
 function chartOptions(height: number) {
   return {
     height,
     layout: {
-      background: { type: ColorType.Solid, color: '#070b16' },
-      textColor: '#94a3b8',
-      fontFamily: '"IBM Plex Mono", "SFMono-Regular", Consolas, monospace',
+      background: { type: ColorType.Solid, color: '#08101d' },
+      textColor: '#a6b3c7',
+      fontFamily: '"Fira Code", "IBM Plex Mono", "SFMono-Regular", Consolas, monospace',
     },
     grid: {
-      vertLines: { color: '#172033' },
-      horzLines: { color: '#172033' },
+      vertLines: { color: '#162033' },
+      horzLines: { color: '#162033' },
     },
-    rightPriceScale: { borderColor: '#334155' },
-    timeScale: { borderColor: '#334155', timeVisible: true, secondsVisible: false },
+    rightPriceScale: { borderColor: '#324154' },
+    timeScale: { borderColor: '#324154', timeVisible: true, secondsVisible: false },
     crosshair: { vertLine: { color: '#64748b' }, horzLine: { color: '#64748b' } },
   }
 }
 
-function buildCharts() {
-  if (!priceContainer.value || !stochContainer.value) return
+function disposeCharts() {
+  resizeObserver?.disconnect()
+  resizeObserver = null
   priceChart?.remove()
   stochChart?.remove()
-  priceChart = createChart(priceContainer.value, chartOptions(410))
+  priceChart = null
+  stochChart = null
+  candleSeries = null
+  stochasticSeries = []
+  syncing = false
+  needsFit = true
+}
+
+function setSeriesData() {
+  if (!priceChart || !stochChart || !candleSeries) return
+
+  const candles = visibleCandles.value
+  const stochastic = visibleStochastic.value
+
+  candleSeries.setData(candles.map((candle) => ({
+    time: candle.timestamp as UTCTimestamp,
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close,
+  })))
+
+  for (let group = 0; group < 3; group += 1) {
+    stochasticSeries[group]?.k.setData(stochastic.flatMap((point) =>
+      point.k[group] == null ? [] : [{ time: point.timestamp as UTCTimestamp, value: point.k[group] }],
+    ))
+    stochasticSeries[group]?.d.setData(stochastic.flatMap((point) =>
+      point.d[group] == null ? [] : [{ time: point.timestamp as UTCTimestamp, value: point.d[group] }],
+    ))
+  }
+
+  if (needsFit) {
+    priceChart.timeScale().fitContent()
+    stochChart.timeScale().fitContent()
+    needsFit = false
+  } else {
+    priceChart.timeScale().scrollToRealTime()
+    stochChart.timeScale().scrollToRealTime()
+  }
+}
+
+function buildCharts() {
+  if (!priceContainer.value || !stochContainer.value || !props.snapshot?.candles.length) return
+  disposeCharts()
+  priceChart = createChart(priceContainer.value, chartOptions(420))
   stochChart = createChart(stochContainer.value, chartOptions(180))
   candleSeries = priceChart.addSeries(CandlestickSeries, {
     upColor: '#2dd4bf',
@@ -75,16 +143,16 @@ function buildCharts() {
     wickDownColor: '#fda4af',
   })
   const palette = [
-    ['#38bdf8', '#facc15'],
-    ['#a78bfa', '#fb923c'],
-    ['#34d399', '#f472b6'],
+    ['#38bdf8', '#f59e0b'],
+    ['#22c55e', '#fb7185'],
+    ['#a3e635', '#f97316'],
   ]
-  const lines: Array<[ISeriesApi<'Line'>, ISeriesApi<'Line'>]> = palette.map(([k, d]) => [
-    stochChart!.addSeries(LineSeries, { color: k, lineWidth: 2, priceLineVisible: false }),
-    stochChart!.addSeries(LineSeries, { color: d, lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false }),
-  ])
+  stochasticSeries = palette.map(([k, d]) => ({
+    k: stochChart!.addSeries(LineSeries, { color: k, lineWidth: 2, priceLineVisible: false }),
+    d: stochChart!.addSeries(LineSeries, { color: d, lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false }),
+  }))
   for (const value of [20, 50, 80]) {
-    lines[0][0].createPriceLine({
+    stochasticSeries[0]?.k.createPriceLine({
       price: value,
       color: value === 50 ? '#475569' : '#64748b',
       lineWidth: 1,
@@ -93,25 +161,6 @@ function buildCharts() {
       title: String(value),
     })
   }
-
-  const snapshot = props.snapshot
-  candleSeries.setData((snapshot?.candles ?? []).map((candle) => ({
-    time: candle.timestamp as UTCTimestamp,
-    open: candle.open,
-    high: candle.high,
-    low: candle.low,
-    close: candle.close,
-  })))
-  for (let group = 0; group < 3; group += 1) {
-    lines[group][0].setData((snapshot?.stochastic ?? []).flatMap((point) =>
-      point.k[group] == null ? [] : [{ time: point.timestamp as UTCTimestamp, value: point.k[group] }],
-    ))
-    lines[group][1].setData((snapshot?.stochastic ?? []).flatMap((point) =>
-      point.d[group] == null ? [] : [{ time: point.timestamp as UTCTimestamp, value: point.d[group] }],
-    ))
-  }
-  priceChart.timeScale().fitContent()
-  stochChart.timeScale().fitContent()
 
   priceChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
     if (!range || syncing) return
@@ -126,12 +175,18 @@ function buildCharts() {
     syncing = false
   })
   resizeObserver?.disconnect()
-  resizeObserver = new ResizeObserver(() => {
-    if (!priceContainer.value || !stochContainer.value) return
-    priceChart?.applyOptions({ width: priceContainer.value.clientWidth })
-    stochChart?.applyOptions({ width: stochContainer.value.clientWidth })
-  })
-  resizeObserver.observe(priceContainer.value)
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => {
+      if (!priceContainer.value || !stochContainer.value) return
+      priceChart?.applyOptions({ width: priceContainer.value.clientWidth })
+      stochChart?.applyOptions({ width: stochContainer.value.clientWidth })
+    })
+    resizeObserver.observe(priceContainer.value)
+    resizeObserver.observe(stochContainer.value)
+  }
+
+  needsFit = true
+  setSeriesData()
 }
 
 function zoom(factor: number) {
@@ -144,19 +199,27 @@ function zoom(factor: number) {
 }
 
 function resetView() {
-  priceChart?.timeScale().fitContent()
-  stochChart?.timeScale().fitContent()
+  needsFit = true
+  setSeriesData()
 }
 
 watch(() => props.snapshot, async () => {
+  needsFit = true
   await nextTick()
-  buildCharts()
+  if (props.snapshot?.candles.length) {
+    buildCharts()
+  } else {
+    disposeCharts()
+  }
 }, { immediate: true })
 
+watch([() => props.playbackIndex, () => props.playing], async () => {
+  await nextTick()
+  setSeriesData()
+})
+
 onBeforeUnmount(() => {
-  resizeObserver?.disconnect()
-  priceChart?.remove()
-  stochChart?.remove()
+  disposeCharts()
 })
 </script>
 
@@ -164,8 +227,13 @@ onBeforeUnmount(() => {
   <section class="chart-card" aria-labelledby="market-chart-title">
     <div class="card-heading chart-heading">
       <div>
-        <p class="eyebrow">MARKET VIEW</p>
-        <h2 id="market-chart-title">BTCUSD 价格与 Stoch</h2>
+        <p class="eyebrow">PLAYBACK VIEW</p>
+        <h2 id="market-chart-title">BTCUSD 复盘图</h2>
+        <p class="chart-note">{{ summary }}</p>
+      </div>
+      <div class="chart-status">
+        <span class="status-chip" :data-status="playing ? 'running' : 'paused'">{{ playing ? '播放中' : '已暂停' }}</span>
+        <span class="status-chip muted">{{ visibleCount }}/{{ totalCandles }}</span>
       </div>
       <div class="chart-actions" aria-label="图表缩放控制">
         <button class="icon-button" type="button" aria-label="放大图表" title="放大" @click="zoom(0.75)">
@@ -197,7 +265,7 @@ onBeforeUnmount(() => {
     </template>
 
     <details class="data-table-panel">
-      <summary>查看最近 12 根 OHLC 数据</summary>
+      <summary>查看当前播放段最近 12 根 OHLC 数据</summary>
       <div class="table-toolbar">
         <p>{{ summary }}</p>
         <button type="button" class="text-button" :aria-pressed="newestFirst" @click="newestFirst = !newestFirst">
