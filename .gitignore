@@ -4,3 +4,8 @@ tools/__pycache__/
 /build/
 /projects/
 /data/
+/target/
+/frontend/node_modules/
+/frontend/dist/
+/.env
+/deployment/certs/
