@@ -48,7 +48,7 @@ CPU 配额由 Docker Compose 的 `cpus` 字段下发到容器，可按服务器�
 - HTTP 入口只执行 `301` 重定向到同一主机 HTTPS。
 - 生产证书只读挂载为 `/etc/nginx/certs/fullchain.pem` 和 `privkey.pem`；Nginx 启动脚本会把它们链接到运行时目录 `/run/nginx-certs/`。
 - 未挂载证书时，容器会生成 7 天有效的 localhost 自签名证书，仅用于本地 Compose 冒烟。
-- Nginx 只启用 TLS 1.2/1.3，并设置 HSTS、`X-Content-Type-Options`、`Referrer-Policy` 和最小权限 CSP。
+- Nginx 只启用 TLS 1.2/1.3，并设置 HSTS、`X-Content-Type-Options`、`Referrer-Policy` 和 CSP；CSP 只对样式放开 inline style，以兼容图表库动态尺寸和颜色。
 - 本地开发可生成自签名证书；浏览器警告是预期行为，不能把自签名证书用于公网。
 - 证书续期由宿主机 Certbot 或同等工具处理；续期后执行 `nginx -s reload`，无需重启后端。
 
