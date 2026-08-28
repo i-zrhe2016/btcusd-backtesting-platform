@@ -82,7 +82,7 @@ const pageError = ref('')
 const projectError = ref('')
 const activeView = ref<AppView>('projects')
 const playbackPlaying = ref(false)
-const replayConsoleCollapsed = ref(false)
+const replayConsoleCollapsed = ref(true)
 
 const projectDraft = reactive<ReplayProjectDraft>(createReplayDraft(null))
 
