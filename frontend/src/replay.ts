@@ -1,4 +1,4 @@
-import type { MarketMetadata } from './types'
+import type { Candle, MarketMetadata } from './types'
 import { fromUtcInput, toUtcInput, formatUtc } from './format'
 
 export interface ReplayProjectDraft {
@@ -53,6 +53,7 @@ export interface ReplayProject {
   to: number
   speed: number
   cursorIndex: number
+  cursorTimestamp?: number
   trades: ManualTrade[]
   createdAt: string
   updatedAt: string
@@ -103,6 +104,24 @@ export function replayDelayMs(speed: number): number {
 export function clampReplayCursor(index: number, totalCandles: number): number {
   if (!Number.isFinite(index) || totalCandles <= 0) return 0
   return clamp(Math.floor(index), 0, totalCandles - 1)
+}
+
+export function replayCursorIndexAtOrBefore(candles: Pick<Candle, 'timestamp'>[], timestamp: number): number {
+  if (!candles.length || !Number.isFinite(timestamp)) return 0
+
+  let low = 0
+  let high = candles.length - 1
+  let result = 0
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    if (candles[middle].timestamp <= timestamp) {
+      result = middle
+      low = middle + 1
+    } else {
+      high = middle - 1
+    }
+  }
+  return result
 }
 
 export function timeframeStepSeconds(timeframe: string): number {
@@ -169,6 +188,7 @@ export function reconcileReplayProject(project: ReplayProject, market: MarketMet
     from,
     to,
     cursorIndex: 0,
+    cursorTimestamp: undefined,
     trades: [],
     updatedAt: nowIso(),
   }
@@ -224,7 +244,7 @@ export function createReplayProjectFromDraft(
 
   const normalizedSpeed = normalizeSpeed(draft.speed)
   const timestamp = nowIso()
-  const keepExistingTrades = Boolean(
+  const keepExistingState = Boolean(
     existing &&
     existing.symbol === symbol &&
     existing.timeframe === timeframe &&
@@ -240,8 +260,9 @@ export function createReplayProjectFromDraft(
     from,
     to,
     speed: normalizedSpeed,
-    cursorIndex: existing?.cursorIndex ?? 0,
-    trades: keepExistingTrades ? existing?.trades ?? [] : [],
+    cursorIndex: keepExistingState ? existing?.cursorIndex ?? 0 : 0,
+    cursorTimestamp: keepExistingState ? existing?.cursorTimestamp : undefined,
+    trades: keepExistingState ? existing?.trades ?? [] : [],
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
   }
@@ -270,6 +291,9 @@ export function normalizeReplayProject(raw: unknown): ReplayProject | null {
 
   const speed = normalizeSpeed(typeof candidate.speed === 'number' ? candidate.speed : DEFAULT_SPEED)
   const cursorIndex = Math.max(0, Math.floor(typeof candidate.cursorIndex === 'number' ? candidate.cursorIndex : 0))
+  const cursorTimestamp = typeof candidate.cursorTimestamp === 'number' && Number.isFinite(candidate.cursorTimestamp)
+    ? Math.floor(candidate.cursorTimestamp)
+    : undefined
   const trades = Array.isArray(candidate.trades)
     ? sortManualTrades(candidate.trades.map(normalizeManualTrade).filter((trade): trade is ManualTrade => Boolean(trade)))
     : []
@@ -285,6 +309,7 @@ export function normalizeReplayProject(raw: unknown): ReplayProject | null {
     to: Math.floor(candidate.to),
     speed,
     cursorIndex,
+    cursorTimestamp,
     trades,
     createdAt,
     updatedAt,
@@ -433,6 +458,7 @@ export function applyManualTrade(project: ReplayProject, input: ManualTradeInput
   return {
     ...project,
     cursorIndex: candleIndex,
+    cursorTimestamp: Math.floor(input.timestamp),
     trades: sortManualTrades([
       ...retainedTrades,
       {

@@ -6,6 +6,7 @@ import {
   loadReplayProjects,
   nextReplayWindowStart,
   reconcileReplayProject,
+  replayCursorIndexAtOrBefore,
   replayWindowEnd,
   saveReplayProjects,
   summarizeManualTrades,
@@ -104,6 +105,14 @@ describe('replay helpers', () => {
     expect(clampReplayCursor(5, 0)).toBe(0)
   })
 
+  it('maps a saved progress timestamp to the current timeframe window', () => {
+    const candles = [{ timestamp: 100 }, { timestamp: 200 }, { timestamp: 360 }]
+
+    expect(replayCursorIndexAtOrBefore(candles, 90)).toBe(0)
+    expect(replayCursorIndexAtOrBefore(candles, 250)).toBe(1)
+    expect(replayCursorIndexAtOrBefore(candles, 999)).toBe(2)
+  })
+
   it('creates bounded lazy-loading windows', () => {
     expect(timeframeStepSeconds('1m')).toBe(60)
     expect(replayWindowEnd(1_000, 20_000, '1m')).toBe(15_400)
@@ -168,6 +177,7 @@ describe('replay helpers', () => {
       quantity: 1,
       realizedPnl: null,
     })
+    expect(longProject.cursorTimestamp).toBe(project.from + 180)
     expect(closedProject.trades[1]).toMatchObject({
       side: 'sell',
       action: 'close-long',

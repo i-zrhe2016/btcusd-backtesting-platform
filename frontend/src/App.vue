@@ -35,6 +35,7 @@ import {
   nextReplayWindowStart,
   projectRangeLabel,
   reconcileReplayProject,
+  replayCursorIndexAtOrBefore,
   replayWindowEnd,
   REPLAY_PAGE_SIZE,
   replayDelayMs,
@@ -42,6 +43,7 @@ import {
   saveActiveReplayProjectId,
   saveReplayProjects,
   summarizeManualTrades,
+  timeframeStepSeconds,
   type ManualTradeAction,
   type ManualTradeSide,
   type ReplayProject,
@@ -203,12 +205,15 @@ function alignProjectToMarket(project: ReplayProject): { project: ReplayProject;
   return { project: aligned, changed: true }
 }
 
-function updateProjectCursor(projectId: string, cursorIndex: number) {
+function updateProjectCursor(projectId: string, cursorIndex: number, cursorTimestamp?: number) {
   const current = projects.value.find((project) => project.id === projectId)
   if (!current) return
   updateProject({
     ...current,
     cursorIndex,
+    cursorTimestamp: typeof cursorTimestamp === 'number' && Number.isFinite(cursorTimestamp)
+      ? Math.floor(cursorTimestamp)
+      : current.cursorTimestamp,
     updatedAt: new Date().toISOString(),
   })
 }
@@ -240,7 +245,7 @@ function setPlaybackCursor(index: number, shouldPause = true) {
   const total = totalReplayCandles.value
   if (!project || total <= 0) return
   const cursorIndex = clampReplayCursor(index, total)
-  updateProjectCursor(project.id, cursorIndex)
+  updateProjectCursor(project.id, cursorIndex, replaySnapshot.value?.candles[cursorIndex]?.timestamp)
   if (shouldPause) {
     pausePlayback()
   }
@@ -262,6 +267,7 @@ function changeReplayTimeframe(event: Event) {
 
   pausePlayback()
   projectDraft.timeframe = timeframe
+  const cursorTimestamp = currentCandle.value?.timestamp ?? project.cursorTimestamp
 
   const defaultProjectName = `${project.symbol} ${project.timeframe} Replay`
   const nextDraft: ReplayProjectDraft = {
@@ -272,12 +278,17 @@ function changeReplayTimeframe(event: Event) {
   const nextProject = {
     ...createReplayProjectFromDraft(nextDraft, project),
     cursorIndex: 0,
+    cursorTimestamp,
   }
 
   updateProject(nextProject)
   syncDraftFromProject(nextProject)
-  void loadReplaySnapshot(nextProject)
-  setNotice(`周期已切换为 ${timeframeLabels[timeframe] ?? timeframe}，旧周期交易记录已清空。`)
+  void loadReplaySnapshot(nextProject, {
+    cursorTimestamp,
+    notice: cursorTimestamp
+      ? `周期已切换为 ${timeframeLabels[timeframe] ?? timeframe}，已保留 ${formatUtc(cursorTimestamp)} UTC 的复盘进度；旧周期交易记录已清空。`
+      : `周期已切换为 ${timeframeLabels[timeframe] ?? timeframe}，旧周期交易记录已清空。`,
+  })
 }
 
 function toggleReplayConsole() {
@@ -407,7 +418,10 @@ function nextReplayRequestFrom(snapshot: MarketSnapshot, project: ReplayProject,
   return nextFrom < project.to ? nextFrom : null
 }
 
-async function loadReplaySnapshot(project: ReplayProject) {
+async function loadReplaySnapshot(
+  project: ReplayProject,
+  options: { cursorTimestamp?: number; notice?: string } = {},
+) {
   const requestId = ++snapshotRequestId
   replayLoading.value = true
   replayError.value = ''
@@ -417,10 +431,21 @@ async function loadReplaySnapshot(project: ReplayProject) {
   replaySnapshot.value = null
 
   try {
-    const requestedTo = replayWindowEnd(project.from, project.to, project.timeframe)
+    const step = timeframeStepSeconds(project.timeframe)
+    const requestedCursorTimestamp = options.cursorTimestamp ?? project.cursorTimestamp
+    const hasCursorTimestamp = typeof requestedCursorTimestamp === 'number' && Number.isFinite(requestedCursorTimestamp)
+    const boundedCursorTimestamp = hasCursorTimestamp
+      ? Math.min(Math.max(requestedCursorTimestamp as number, project.from), Math.max(project.from, project.to - step))
+      : null
+    const requestedFrom = boundedCursorTimestamp === null
+      ? project.from
+      : Math.max(project.from, boundedCursorTimestamp - (step * Math.floor(REPLAY_PAGE_SIZE / 2)))
+    const requestedTo = boundedCursorTimestamp === null
+      ? replayWindowEnd(project.from, project.to, project.timeframe)
+      : Math.min(project.to, boundedCursorTimestamp + (step * (REPLAY_PAGE_SIZE - Math.floor(REPLAY_PAGE_SIZE / 2))))
     const snapshot = await getMarketSnapshot({
       timeframe: project.timeframe,
-      from: project.from,
+      from: requestedFrom,
       to: requestedTo,
       limit: REPLAY_PAGE_SIZE,
       lengths: replayLengths,
@@ -428,11 +453,16 @@ async function loadReplaySnapshot(project: ReplayProject) {
     if (requestId !== snapshotRequestId) return
     replaySnapshot.value = snapshot
     replayNextFrom.value = nextReplayRequestFrom(snapshot, project, requestedTo)
-    const clamped = clampReplayCursor(project.cursorIndex, snapshot.candles.length)
-    if (clamped !== project.cursorIndex) {
-      updateProjectCursor(project.id, clamped)
+    if (snapshot.candles.length) {
+      const clamped = boundedCursorTimestamp === null
+        ? clampReplayCursor(project.cursorIndex, snapshot.candles.length)
+        : replayCursorIndexAtOrBefore(snapshot.candles, boundedCursorTimestamp)
+      const mappedTimestamp = snapshot.candles[clamped]?.timestamp
+      if (clamped !== project.cursorIndex || mappedTimestamp !== project.cursorTimestamp) {
+        updateProjectCursor(project.id, clamped, mappedTimestamp)
+      }
     }
-    setNotice(`项目“${project.name}”已加载 ${snapshot.candles.length} 根 ${project.timeframe} K 线。`)
+    setNotice(options.notice ?? `项目“${project.name}”已加载 ${snapshot.candles.length} 根 ${project.timeframe} K 线。`)
   } catch (caught) {
     if (requestId !== snapshotRequestId) return
     replayError.value = caught instanceof Error ? caught.message : '复盘行情加载失败。'
