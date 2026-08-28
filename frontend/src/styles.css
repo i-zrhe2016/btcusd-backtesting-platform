@@ -846,21 +846,16 @@ select {
   right: 12px;
   bottom: 12px;
   display: grid;
-  gap: 10px;
-  max-height: min(54vh, 420px);
-  padding: 10px;
-  overflow: hidden;
-}
-
-.replay-console.collapsed {
+  gap: 0;
   max-height: none;
   padding: 8px;
+  overflow: hidden;
 }
 
 .console-strip {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto minmax(240px, auto) auto;
-  grid-template-areas: "summary timeframe play stats toggle";
+  grid-template-columns: minmax(220px, 1fr) auto auto minmax(240px, auto);
+  grid-template-areas: "summary timeframe play stats";
   gap: 10px;
   align-items: center;
   min-height: 44px;
@@ -912,18 +907,13 @@ select {
   font: 700 12px/1 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
-.console-play,
-.console-toggle {
+.console-play {
   min-height: 40px;
   white-space: nowrap;
 }
 
 .console-play {
   grid-area: play;
-}
-
-.console-toggle {
-  grid-area: toggle;
 }
 
 .console-quick-stats {
@@ -1273,11 +1263,11 @@ select {
 
 @media (max-width: 1320px) {
   .console-strip {
-    grid-template-columns: minmax(220px, 1fr) auto auto auto;
-    grid-template-areas: "summary timeframe play toggle";
+    grid-template-columns: minmax(160px, 1fr) auto auto minmax(96px, auto);
+    grid-template-areas: "summary timeframe play stats";
   }
 
-  .console-quick-stats {
+  .console-quick-stats span:not(:first-child) {
     display: none;
   }
 
@@ -1320,14 +1310,12 @@ select {
   }
 
   .console-strip {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas:
-      "summary play toggle"
-      "timeframe timeframe timeframe";
+    grid-template-columns: minmax(0, 1fr) auto auto minmax(96px, auto);
+    grid-template-areas: "summary timeframe play stats";
   }
 
   .timeframe-control {
-    justify-self: start;
+    justify-self: auto;
   }
 }
 
@@ -1439,11 +1427,13 @@ select {
   }
 
   .console-strip {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "summary toggle"
-      "timeframe play";
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "summary timeframe play";
     gap: 8px;
+  }
+
+  .console-quick-stats {
+    display: none;
   }
 
   .console-summary span {
@@ -1451,12 +1441,11 @@ select {
   }
 
   .timeframe-control {
-    grid-template-columns: auto minmax(76px, 1fr);
-    width: 100%;
+    grid-template-columns: auto auto;
+    width: auto;
   }
 
-  .console-play,
-  .console-toggle {
+  .console-play {
     min-height: 38px;
     padding-right: 10px;
     padding-left: 10px;
