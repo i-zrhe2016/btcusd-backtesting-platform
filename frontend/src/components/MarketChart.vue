@@ -40,7 +40,7 @@ let tradeMarkers: ISeriesMarkersPluginApi<Time> | null = null
 let resizeObserver: ResizeObserver | null = null
 
 const chartTheme = {
-  background: '#050505',
+  background: '#000000',
   text: '#dbe4ee',
   border: '#334155',
   crosshair: '#cbd5e1',

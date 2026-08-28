@@ -18,7 +18,7 @@
   --danger: #991b1b;
   --profit: #166534;
   --focus: #111827;
-  --chart-bg: #050505;
+  --chart-bg: #000000;
   --chart-border: #334155;
   --chart-text: #dbe4ee;
   --radius-sm: 6px;
@@ -444,8 +444,8 @@ select {
 }
 
 .fullscreen-chart .chart-skeleton {
-  background: linear-gradient(90deg, #050505 25%, #141414 50%, #050505 75%);
-  background-size: 200% 100%;
+  background: var(--chart-bg);
+  animation: none;
 }
 
 .fullscreen-chart .empty-state {
