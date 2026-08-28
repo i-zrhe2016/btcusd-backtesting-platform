@@ -44,12 +44,12 @@ const chartTheme = {
   text: '#dbe4ee',
   border: '#334155',
   crosshair: '#cbd5e1',
-  candleUp: '#22c55e',
-  candleUpBorder: '#4ade80',
-  candleDown: '#ef4444',
-  candleDownBorder: '#f87171',
-  markerBuy: '#22c55e',
-  markerSell: '#ef4444',
+  candleUp: 'transparent',
+  candleUpBorder: '#ffffff',
+  candleDown: '#ffffff',
+  candleDownBorder: '#ffffff',
+  markerBuy: '#ffffff',
+  markerSell: '#dbe4ee',
 }
 
 const totalCandles = computed(() => props.snapshot?.candles.length ?? 0)
