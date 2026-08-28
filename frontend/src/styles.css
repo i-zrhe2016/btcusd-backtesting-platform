@@ -38,6 +38,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
   background:
     linear-gradient(180deg, #020617 0%, #030a14 100%);
   color: var(--text);
@@ -157,6 +158,17 @@ select {
   min-height: 100dvh;
 }
 
+.app-shell.replay-active {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.app-shell.replay-active .topbar {
+  position: relative;
+}
+
 .topbar {
   position: sticky;
   top: 0;
@@ -238,6 +250,11 @@ select {
   box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.18);
 }
 
+.mode-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .service-state {
   display: flex;
   align-items: center;
@@ -261,6 +278,16 @@ select {
   padding: 18px 16px 40px;
   display: grid;
   gap: 16px;
+}
+
+.workspace-replay {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  display: block;
+  overflow: hidden;
 }
 
 .workspace-head {
@@ -342,6 +369,58 @@ select {
   align-items: start;
 }
 
+.project-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 480px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.project-form-panel,
+.project-list-panel,
+.backtest-context {
+  min-width: 0;
+}
+
+.project-list-panel .project-list {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.project-list-panel .project-item strong {
+  max-width: none;
+}
+
+.backtest-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+  gap: 16px;
+  align-items: start;
+}
+
+.backtest-tools {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.backtest-context .mini-actions {
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+.backtest-context .mini-actions > * {
+  flex: 1 1 0;
+}
+
+.replay-screen {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #060d18;
+}
+
 .rail {
   display: grid;
   gap: 16px;
@@ -364,9 +443,42 @@ select {
   overflow: hidden;
 }
 
+.chart-card {
+  display: grid;
+  grid-template-rows: auto minmax(420px, 1fr);
+  min-height: 0;
+}
+
 .chart-card,
 .side-card {
   padding: 16px;
+}
+
+.chart-card-bare {
+  grid-template-rows: minmax(0, 1fr);
+  padding: 0;
+}
+
+.fullscreen-chart {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  background: #060d18;
+  box-shadow: none;
+}
+
+.price-chart {
+  width: 100%;
+  min-height: 520px;
+}
+
+.chart-card-bare .price-chart,
+.fullscreen-chart .chart-skeleton,
+.fullscreen-chart .empty-state {
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
 }
 
 .panel-head,
@@ -723,6 +835,116 @@ select {
   margin-top: 4px;
   color: var(--text);
   font-size: 14px;
+}
+
+.replay-topline {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.replay-topline > * {
+  pointer-events: auto;
+}
+
+.replay-title,
+.replay-status,
+.replay-transport {
+  border: 1px solid rgba(38, 50, 72, 0.9);
+  border-radius: var(--radius);
+  background: rgba(7, 13, 24, 0.88);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(10px);
+}
+
+.replay-title {
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.replay-title h1 {
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.replay-title span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font: 600 12px/1.35 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.replay-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 420px;
+  padding: 8px;
+}
+
+.replay-alert {
+  position: absolute;
+  z-index: 6;
+  top: 78px;
+  left: 12px;
+  right: 12px;
+}
+
+.replay-transport {
+  position: absolute;
+  z-index: 5;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  grid-template-columns: auto minmax(280px, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+}
+
+.replay-transport .transport-meta {
+  grid-template-columns: minmax(140px, 220px) minmax(220px, 1fr);
+}
+
+.replay-candle-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(64px, 1fr));
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+
+.replay-candle-strip div {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(5, 11, 20, 0.82);
+}
+
+.replay-candle-strip dt {
+  margin-bottom: 2px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.replay-candle-strip dd {
+  margin: 0;
+  color: var(--text);
+  font: 700 12px/1.25 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
 }
 
 .inspector-panel {
@@ -1095,6 +1317,14 @@ td {
   .workspace-grid {
     grid-template-columns: 280px minmax(0, 1fr) 320px;
   }
+
+  .replay-transport {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .replay-candle-strip {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1180px) {
@@ -1109,6 +1339,20 @@ td {
 
   .workspace-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .project-layout,
+  .backtest-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .replay-topline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .replay-status {
+    justify-content: flex-start;
+    max-width: none;
   }
 }
 
@@ -1141,8 +1385,16 @@ td {
     grid-template-columns: 1fr;
   }
 
+  .replay-transport .transport-meta {
+    grid-template-columns: 1fr;
+  }
+
   .field-grid.two {
     grid-template-columns: 1fr;
+  }
+
+  .replay-candle-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -1185,6 +1437,28 @@ td {
   .transport-play {
     min-width: 0;
     flex: 1 1 auto;
+  }
+
+  .replay-topline {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    gap: 8px;
+  }
+
+  .replay-transport {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    padding: 10px;
+  }
+
+  .replay-title h1 {
+    font-size: 15px;
+  }
+
+  .replay-candle-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .chart-skeleton,
