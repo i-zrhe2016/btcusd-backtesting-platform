@@ -177,6 +177,7 @@ function buildCharts() {
     borderDownColor: '#111827',
     wickUpColor: '#111827',
     wickDownColor: '#111827',
+    priceLineVisible: false,
   })
   tradeMarkers = createSeriesMarkers(candleSeries, [], { autoScale: true, zOrder: 'top' })
 

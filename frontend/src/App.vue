@@ -3,8 +3,10 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   ArrowLeft,
   ChartCandlestick,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ChevronsLeft,
   ChevronsRight,
   FolderOpen,
@@ -71,6 +73,7 @@ const pageError = ref('')
 const projectError = ref('')
 const activeView = ref<AppView>('projects')
 const playbackPlaying = ref(false)
+const replayConsoleCollapsed = ref(false)
 
 const projectDraft = reactive<ReplayProjectDraft>(createReplayDraft(null))
 
@@ -121,6 +124,7 @@ const positionLabel = computed(() => {
 })
 const averagePriceLabel = computed(() => manualTradeStats.value.averagePrice === null ? '—' : formatNumber(manualTradeStats.value.averagePrice))
 const canPlaceManualTrade = computed(() => Boolean(activeProject.value && currentCandle.value && !replayLoading.value && !replayError.value))
+const currentTimeframeValue = computed(() => activeProject.value?.timeframe ?? projectDraft.timeframe)
 const timeframeOptions = computed(() => {
   const supported = metadata.value?.supported_timeframes ?? Object.keys(timeframeLabels)
   return supported.filter((value) => value in timeframeLabels)
@@ -216,6 +220,35 @@ function seekReplay(event: Event) {
 
 function changePlaybackSpeed(event: Event) {
   updateActiveProjectSpeed((event.target as HTMLInputElement).valueAsNumber)
+}
+
+function changeReplayTimeframe(event: Event) {
+  const project = activeProject.value
+  const timeframe = (event.target as HTMLSelectElement).value
+  if (!project || !timeframe || project.timeframe === timeframe) return
+
+  pausePlayback()
+  projectDraft.timeframe = timeframe
+
+  const defaultProjectName = `${project.symbol} ${project.timeframe} Replay`
+  const nextDraft: ReplayProjectDraft = {
+    ...draftFromProject(project),
+    name: project.name === defaultProjectName ? `${project.symbol} ${timeframe} Replay` : project.name,
+    timeframe,
+  }
+  const nextProject = {
+    ...createReplayProjectFromDraft(nextDraft, project),
+    cursorIndex: 0,
+  }
+
+  updateProject(nextProject)
+  syncDraftFromProject(nextProject)
+  void loadReplaySnapshot(nextProject)
+  setNotice(`周期已切换为 ${timeframeLabels[timeframe] ?? timeframe}，旧周期交易记录已清空。`)
+}
+
+function toggleReplayConsole() {
+  replayConsoleCollapsed.value = !replayConsoleCollapsed.value
 }
 
 function stepReplay(delta: number) {
@@ -614,6 +647,7 @@ onBeforeUnmount(() => {
       </template>
 
       <section v-else-if="activeView === 'replay'" class="replay-screen" aria-labelledby="replay-title">
+        <h1 id="replay-title" class="sr-only">{{ currentProjectLabel }} 复盘</h1>
         <MarketChart
           class="fullscreen-chart"
           :snapshot="replaySnapshot"
@@ -626,19 +660,13 @@ onBeforeUnmount(() => {
         />
 
         <div class="replay-topline">
-          <button class="secondary-button" type="button" @click="openProjects">
+          <button class="secondary-button replay-back-button" type="button" @click="openProjects">
             <ArrowLeft :size="18" aria-hidden="true" />
             项目库
           </button>
-          <div class="replay-title">
-            <p class="eyebrow">BTCUSD / REPLAY</p>
-            <h1 id="replay-title">{{ currentProjectLabel }}</h1>
-            <span>{{ currentRangeLabel }}</span>
-          </div>
           <div class="replay-status">
             <span class="status-chip" :data-status="playbackPlaying ? 'running' : 'paused'">{{ replayStatusLabel }}</span>
             <span class="status-chip muted">{{ currentProgressLabel }}</span>
-            <span class="status-chip muted">{{ currentTimeLabel }}</span>
             <span class="status-chip muted">{{ positionLabel }}</span>
           </div>
         </div>
@@ -649,93 +677,139 @@ onBeforeUnmount(() => {
           <button type="button" class="text-button" @click="initialize">重试</button>
         </div>
 
-        <div class="replay-transport" aria-label="K 线播放控制">
-          <div class="trade-panel" aria-label="手动交易">
-            <div class="trade-actions">
-              <button class="trade-button buy" type="button" :disabled="!canPlaceManualTrade" @click="placeManualTrade('buy')">
-                <TrendingUp :size="18" aria-hidden="true" />
-                Buy
-              </button>
-              <button class="trade-button sell" type="button" :disabled="!canPlaceManualTrade" @click="placeManualTrade('sell')">
-                <TrendingDown :size="18" aria-hidden="true" />
-                Sell
-              </button>
+        <div class="replay-console" :class="{ collapsed: replayConsoleCollapsed }" aria-label="复盘控制台">
+          <div class="console-strip">
+            <div class="console-summary">
+              <strong>{{ currentProjectLabel }}</strong>
+              <span>{{ currentRangeLabel }}</span>
             </div>
-            <dl class="position-metrics">
-              <div><dt>持仓</dt><dd>{{ positionLabel }}</dd></div>
-              <div><dt>均价</dt><dd>{{ averagePriceLabel }}</dd></div>
-              <div><dt>已实现</dt><dd :class="{ positive: manualTradeStats.realizedPnl > 0, negative: manualTradeStats.realizedPnl < 0 }">{{ formatPnl(manualTradeStats.realizedPnl) }}</dd></div>
-              <div><dt>浮动</dt><dd :class="{ positive: manualTradeStats.unrealizedPnl > 0, negative: manualTradeStats.unrealizedPnl < 0 }">{{ formatPnl(manualTradeStats.unrealizedPnl) }}</dd></div>
-              <div><dt>净值</dt><dd :class="{ positive: manualTradeStats.netPnl > 0, negative: manualTradeStats.netPnl < 0 }">{{ formatPnl(manualTradeStats.netPnl) }}</dd></div>
-            </dl>
-          </div>
 
-          <div class="transport-group">
-            <button class="icon-button" type="button" aria-label="跳到开头" title="跳到开头" @click="seekToStart">
-              <ChevronsLeft :size="18" aria-hidden="true" />
-            </button>
-            <button class="icon-button" type="button" aria-label="上一根 K 线" title="上一根" @click="stepReplay(-1)">
-              <ChevronLeft :size="18" aria-hidden="true" />
-            </button>
-            <button class="primary-button transport-play" type="button" :disabled="!totalReplayCandles" @click="togglePlayback">
+            <label class="timeframe-control">
+              <span>周期</span>
+              <select
+                :value="currentTimeframeValue"
+                :disabled="!activeProject || replayLoading"
+                @change="changeReplayTimeframe"
+              >
+                <option v-for="timeframe in timeframeOptions" :key="timeframe" :value="timeframe">
+                  {{ timeframeLabels[timeframe] ?? timeframe }}
+                </option>
+              </select>
+            </label>
+
+            <button class="primary-button console-play" type="button" :disabled="!totalReplayCandles" @click="togglePlayback">
               <Pause v-if="playbackPlaying" :size="18" aria-hidden="true" />
               <Play v-else :size="18" aria-hidden="true" />
-              {{ playbackPlaying ? '暂停播放' : '开始播放' }}
+              {{ playbackPlaying ? '暂停' : '播放' }}
             </button>
-            <button class="icon-button" type="button" aria-label="下一根 K 线" title="下一根" @click="stepReplay(1)">
-              <ChevronRight :size="18" aria-hidden="true" />
-            </button>
-            <button class="icon-button" type="button" aria-label="跳到末尾" title="跳到末尾" @click="seekToEnd">
-              <ChevronsRight :size="18" aria-hidden="true" />
+
+            <div class="console-quick-stats" aria-label="当前复盘状态">
+              <span>{{ currentProgressLabel }}</span>
+              <span>{{ currentTimeLabel }}</span>
+              <span>{{ positionLabel }}</span>
+            </div>
+
+            <button
+              class="secondary-button console-toggle"
+              type="button"
+              aria-controls="replay-console-body"
+              :aria-expanded="!replayConsoleCollapsed"
+              @click="toggleReplayConsole"
+            >
+              <ChevronUp v-if="!replayConsoleCollapsed" :size="18" aria-hidden="true" />
+              <ChevronDown v-else :size="18" aria-hidden="true" />
+              {{ replayConsoleCollapsed ? '展开控制台' : '收起控制台' }}
             </button>
           </div>
 
-          <div class="transport-meta">
-            <label class="speed-control">
-              <span><SlidersHorizontal :size="16" aria-hidden="true" /> 播放速度</span>
-              <input
-                :value="activeProject?.speed ?? 1"
-                type="range"
-                min="0.25"
-                max="8"
-                step="0.25"
-                :disabled="!activeProject"
-                @input="changePlaybackSpeed"
-              />
-              <output>{{ currentSpeedLabel }}</output>
-            </label>
+          <div id="replay-console-body" v-show="!replayConsoleCollapsed" class="console-body">
+            <div class="trade-panel" aria-label="手动交易">
+              <div class="trade-actions">
+                <button class="trade-button buy" type="button" :disabled="!canPlaceManualTrade" @click="placeManualTrade('buy')">
+                  <TrendingUp :size="18" aria-hidden="true" />
+                  Buy
+                </button>
+                <button class="trade-button sell" type="button" :disabled="!canPlaceManualTrade" @click="placeManualTrade('sell')">
+                  <TrendingDown :size="18" aria-hidden="true" />
+                  Sell
+                </button>
+              </div>
+              <dl class="position-metrics">
+                <div><dt>持仓</dt><dd>{{ positionLabel }}</dd></div>
+                <div><dt>均价</dt><dd>{{ averagePriceLabel }}</dd></div>
+                <div><dt>已实现</dt><dd :class="{ positive: manualTradeStats.realizedPnl > 0, negative: manualTradeStats.realizedPnl < 0 }">{{ formatPnl(manualTradeStats.realizedPnl) }}</dd></div>
+                <div><dt>浮动</dt><dd :class="{ positive: manualTradeStats.unrealizedPnl > 0, negative: manualTradeStats.unrealizedPnl < 0 }">{{ formatPnl(manualTradeStats.unrealizedPnl) }}</dd></div>
+                <div><dt>净值</dt><dd :class="{ positive: manualTradeStats.netPnl > 0, negative: manualTradeStats.netPnl < 0 }">{{ formatPnl(manualTradeStats.netPnl) }}</dd></div>
+              </dl>
+            </div>
 
-            <label class="progress-control">
-              <span>
-                <TimerReset :size="16" aria-hidden="true" />
-                进度
-              </span>
-              <input
-                :value="activePlaybackIndex"
-                type="range"
-                min="0"
-                :max="Math.max(totalReplayCandles - 1, 0)"
-                :disabled="!totalReplayCandles"
-                @input="seekReplay"
-              />
-              <small>{{ currentProgressLabel }} · {{ currentTimeLabel }}</small>
-            </label>
-          </div>
+            <div class="transport-group">
+              <button class="icon-button" type="button" aria-label="跳到开头" title="跳到开头" @click="seekToStart">
+                <ChevronsLeft :size="18" aria-hidden="true" />
+              </button>
+              <button class="icon-button" type="button" aria-label="上一根 K 线" title="上一根" @click="stepReplay(-1)">
+                <ChevronLeft :size="18" aria-hidden="true" />
+              </button>
+              <button class="primary-button transport-play" type="button" :disabled="!totalReplayCandles" @click="togglePlayback">
+                <Pause v-if="playbackPlaying" :size="18" aria-hidden="true" />
+                <Play v-else :size="18" aria-hidden="true" />
+                {{ playbackPlaying ? '暂停播放' : '开始播放' }}
+              </button>
+              <button class="icon-button" type="button" aria-label="下一根 K 线" title="下一根" @click="stepReplay(1)">
+                <ChevronRight :size="18" aria-hidden="true" />
+              </button>
+              <button class="icon-button" type="button" aria-label="跳到末尾" title="跳到末尾" @click="seekToEnd">
+                <ChevronsRight :size="18" aria-hidden="true" />
+              </button>
+            </div>
 
-          <dl v-if="currentCandle" class="replay-candle-strip">
-            <div><dt>开</dt><dd>{{ formatNumber(currentCandle.open) }}</dd></div>
-            <div><dt>高</dt><dd>{{ formatNumber(currentCandle.high) }}</dd></div>
-            <div><dt>低</dt><dd>{{ formatNumber(currentCandle.low) }}</dd></div>
-            <div><dt>收</dt><dd>{{ formatNumber(currentCandle.close) }}</dd></div>
-            <div><dt>量</dt><dd>{{ formatNumber(currentCandle.volume) }}</dd></div>
-          </dl>
+            <div class="transport-meta">
+              <label class="speed-control">
+                <span><SlidersHorizontal :size="16" aria-hidden="true" /> 播放速度</span>
+                <input
+                  :value="activeProject?.speed ?? 1"
+                  type="range"
+                  min="0.25"
+                  max="8"
+                  step="0.25"
+                  :disabled="!activeProject"
+                  @input="changePlaybackSpeed"
+                />
+                <output>{{ currentSpeedLabel }}</output>
+              </label>
 
-          <div v-if="recentManualTrades.length" class="manual-trade-log" aria-label="最近手动成交">
-            <div v-for="trade in recentManualTrades" :key="trade.id" class="manual-trade-item" :data-side="trade.side">
-              <strong>{{ trade.side.toUpperCase() }}</strong>
-              <span>{{ tradeActionLabel(trade.action) }}</span>
-              <span>{{ formatNumber(trade.price) }}</span>
-              <small>{{ formatUtc(trade.timestamp) }} UTC</small>
+              <label class="progress-control">
+                <span>
+                  <TimerReset :size="16" aria-hidden="true" />
+                  进度
+                </span>
+                <input
+                  :value="activePlaybackIndex"
+                  type="range"
+                  min="0"
+                  :max="Math.max(totalReplayCandles - 1, 0)"
+                  :disabled="!totalReplayCandles"
+                  @input="seekReplay"
+                />
+                <small>{{ currentProgressLabel }} · {{ currentTimeLabel }}</small>
+              </label>
+            </div>
+
+            <dl v-if="currentCandle" class="replay-candle-strip">
+              <div><dt>开</dt><dd>{{ formatNumber(currentCandle.open) }}</dd></div>
+              <div><dt>高</dt><dd>{{ formatNumber(currentCandle.high) }}</dd></div>
+              <div><dt>低</dt><dd>{{ formatNumber(currentCandle.low) }}</dd></div>
+              <div><dt>收</dt><dd>{{ formatNumber(currentCandle.close) }}</dd></div>
+              <div><dt>量</dt><dd>{{ formatNumber(currentCandle.volume) }}</dd></div>
+            </dl>
+
+            <div v-if="recentManualTrades.length" class="manual-trade-log" aria-label="最近手动成交">
+              <div v-for="trade in recentManualTrades" :key="trade.id" class="manual-trade-item" :data-side="trade.side">
+                <strong>{{ trade.side.toUpperCase() }}</strong>
+                <span>{{ tradeActionLabel(trade.action) }}</span>
+                <span>{{ formatNumber(trade.price) }}</span>
+                <small>{{ formatUtc(trade.timestamp) }} UTC</small>
+              </div>
             </div>
           </div>
         </div>

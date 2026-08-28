@@ -779,7 +779,7 @@ select {
   left: 12px;
   right: 12px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 12px;
   pointer-events: none;
@@ -789,9 +789,8 @@ select {
   pointer-events: auto;
 }
 
-.replay-title,
 .replay-status,
-.replay-transport {
+.replay-console {
   border: 1px solid rgba(185, 180, 168, 0.9);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.9);
@@ -799,32 +798,17 @@ select {
   backdrop-filter: blur(10px);
 }
 
-.replay-title {
-  min-width: 0;
-  padding: 10px 12px;
-}
-
-.replay-title h1 {
-  margin-top: 2px;
-  color: var(--text);
-  font-size: 18px;
-  line-height: 1.2;
-}
-
-.replay-title span {
-  display: block;
-  margin-top: 4px;
-  color: var(--text-muted);
-  font: 600 12px/1.35 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
-  overflow-wrap: anywhere;
+.replay-back-button {
+  min-height: 42px;
 }
 
 .replay-status {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  justify-self: end;
   gap: 8px;
-  max-width: 420px;
+  max-width: min(52vw, 420px);
   padding: 8px;
 }
 
@@ -836,12 +820,119 @@ select {
   right: 12px;
 }
 
-.replay-transport {
+.replay-console {
   position: absolute;
   z-index: 5;
   left: 12px;
   right: 12px;
   bottom: 12px;
+  display: grid;
+  gap: 10px;
+  max-height: min(54vh, 420px);
+  padding: 10px;
+  overflow: hidden;
+}
+
+.replay-console.collapsed {
+  max-height: none;
+  padding: 8px;
+}
+
+.console-strip {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto minmax(240px, auto) auto;
+  grid-template-areas: "summary timeframe play stats toggle";
+  gap: 10px;
+  align-items: center;
+  min-height: 44px;
+}
+
+.console-summary {
+  grid-area: summary;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.console-summary strong {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-summary span {
+  color: var(--text-muted);
+  font: 600 11px/1.35 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeframe-control {
+  grid-area: timeframe;
+  display: grid;
+  grid-template-columns: auto minmax(76px, auto);
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.timeframe-control select {
+  height: 36px;
+  min-width: 88px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: 700 12px/1 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.console-play,
+.console-toggle {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.console-play {
+  grid-area: play;
+}
+
+.console-toggle {
+  grid-area: toggle;
+}
+
+.console-quick-stats {
+  grid-area: stats;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.console-quick-stats span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(247, 247, 244, 0.88);
+  color: var(--text-muted);
+  font: 700 11px/1.2 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-body {
   display: grid;
   grid-template-columns: minmax(380px, 540px) auto minmax(360px, 1fr);
   grid-template-areas:
@@ -849,30 +940,34 @@ select {
     "log candles candles";
   gap: 12px;
   align-items: center;
-  padding: 12px;
+  max-height: min(42vh, 330px);
+  min-height: 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(217, 214, 204, 0.8);
+  overflow: auto;
 }
 
-.replay-transport > .trade-panel {
+.console-body > .trade-panel {
   grid-area: trade;
 }
 
-.replay-transport > .transport-group {
+.console-body > .transport-group {
   grid-area: controls;
 }
 
-.replay-transport > .transport-meta {
+.console-body > .transport-meta {
   grid-area: meta;
 }
 
-.replay-transport > .replay-candle-strip {
+.console-body > .replay-candle-strip {
   grid-area: candles;
 }
 
-.replay-transport > .manual-trade-log {
+.console-body > .manual-trade-log {
   grid-area: log;
 }
 
-.replay-transport .transport-meta {
+.console-body .transport-meta {
   grid-template-columns: minmax(120px, 180px) minmax(220px, 1fr);
 }
 
@@ -1121,7 +1216,16 @@ select {
 }
 
 @media (max-width: 1320px) {
-  .replay-transport {
+  .console-strip {
+    grid-template-columns: minmax(220px, 1fr) auto auto auto;
+    grid-template-areas: "summary timeframe play toggle";
+  }
+
+  .console-quick-stats {
+    display: none;
+  }
+
+  .console-body {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "trade"
@@ -1154,13 +1258,20 @@ select {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .replay-topline {
-    grid-template-columns: minmax(0, 1fr);
+  .replay-status {
+    justify-content: flex-end;
+    max-width: none;
   }
 
-  .replay-status {
-    justify-content: flex-start;
-    max-width: none;
+  .console-strip {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "summary play toggle"
+      "timeframe timeframe timeframe";
+  }
+
+  .timeframe-control {
+    justify-self: start;
   }
 }
 
@@ -1193,8 +1304,12 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .replay-transport .transport-meta {
+  .console-body .transport-meta {
     grid-template-columns: 1fr;
+  }
+
+  .console-body {
+    max-height: min(38vh, 300px);
   }
 
   .field-grid.two {
@@ -1256,15 +1371,39 @@ select {
     gap: 8px;
   }
 
-  .replay-transport {
+  .replay-status {
+    display: none;
+  }
+
+  .replay-console {
     left: 8px;
     right: 8px;
     bottom: 8px;
-    padding: 10px;
+    padding: 8px;
   }
 
-  .replay-title h1 {
-    font-size: 15px;
+  .console-strip {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "summary toggle"
+      "timeframe play";
+    gap: 8px;
+  }
+
+  .console-summary span {
+    display: none;
+  }
+
+  .timeframe-control {
+    grid-template-columns: auto minmax(76px, 1fr);
+    width: 100%;
+  }
+
+  .console-play,
+  .console-toggle {
+    min-height: 38px;
+    padding-right: 10px;
+    padding-left: 10px;
   }
 
   .replay-candle-strip {
