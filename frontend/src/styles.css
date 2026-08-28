@@ -1,22 +1,23 @@
 :root {
-  color-scheme: dark;
-  --bg: #020617;
-  --bg-soft: #07111f;
-  --surface: #0a1220;
-  --surface-2: #111a2d;
-  --surface-3: #172234;
-  --border: #263248;
-  --border-strong: #394763;
-  --text: #f8fafc;
-  --text-muted: #9aa9bd;
-  --text-dim: #728096;
-  --accent: #22c55e;
-  --accent-strong: #4ade80;
-  --accent-ink: #07130b;
-  --info: #38bdf8;
-  --warning: #f59e0b;
-  --danger: #fb7185;
-  --focus: #e2e8f0;
+  color-scheme: light;
+  --bg: #f1f0ea;
+  --bg-soft: #f7f7f4;
+  --surface: #ffffff;
+  --surface-2: #f4f3ee;
+  --surface-3: #e9e7df;
+  --border: #d9d6cc;
+  --border-strong: #b9b4a8;
+  --text: #111827;
+  --text-muted: #4b5563;
+  --text-dim: #71717a;
+  --accent: #111827;
+  --accent-strong: #000000;
+  --accent-ink: #ffffff;
+  --info: #155e75;
+  --warning: #92400e;
+  --danger: #991b1b;
+  --profit: #166534;
+  --focus: #111827;
   --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 8px;
@@ -39,8 +40,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   overflow-x: hidden;
-  background:
-    linear-gradient(180deg, #020617 0%, #030a14 100%);
+  background: var(--bg);
   color: var(--text);
 }
 
@@ -96,7 +96,7 @@ select {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: #050b14;
+  background: var(--surface);
   color: var(--text);
   transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
   font-variant-numeric: tabular-nums;
@@ -180,7 +180,7 @@ select {
   height: 64px;
   padding: 0 18px;
   border-bottom: 1px solid var(--border);
-  background: rgba(3, 8, 18, 0.88);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(12px);
 }
 
@@ -197,10 +197,10 @@ select {
   height: 36px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(34, 197, 94, 0.24);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  background: rgba(34, 197, 94, 0.12);
-  color: var(--accent-strong);
+  background: var(--text);
+  color: var(--surface);
 }
 
 .brand strong,
@@ -210,13 +210,13 @@ select {
 
 .brand strong {
   font-size: 15px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
 }
 
 .brand small {
   color: var(--text-dim);
   font: 500 9px/1.4 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
-  letter-spacing: 0.16em;
+  letter-spacing: 0;
 }
 
 .mode-switch {
@@ -247,7 +247,7 @@ select {
 .mode-chip.active {
   background: var(--surface-2);
   color: var(--text);
-  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.18);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 .mode-chip:disabled {
@@ -268,8 +268,8 @@ select {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+  background: var(--profit);
+  box-shadow: 0 0 0 4px rgba(22, 101, 52, 0.14);
 }
 
 .workspace {
@@ -307,14 +307,14 @@ select {
 .eyebrow {
   color: var(--info);
   font: 700 10px/1.4 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
-  letter-spacing: 0.18em;
+  letter-spacing: 0;
 }
 
 .workspace-copy h1 {
   margin-top: 4px;
-  font-size: clamp(24px, 2vw, 34px);
+  font-size: 30px;
   line-height: 1.14;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .workspace-stats {
@@ -352,21 +352,14 @@ select {
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  border: 1px solid rgba(251, 113, 133, 0.32);
+  border: 1px solid rgba(153, 27, 27, 0.32);
   border-radius: var(--radius);
-  background: rgba(76, 5, 25, 0.28);
-  color: #fecdd3;
+  background: #fff1f2;
+  color: var(--danger);
 }
 
 .alert span {
   flex: 1;
-}
-
-.workspace-grid {
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 340px;
-  gap: 16px;
-  align-items: start;
 }
 
 .project-layout {
@@ -377,8 +370,7 @@ select {
 }
 
 .project-form-panel,
-.project-list-panel,
-.backtest-context {
+.project-list-panel {
   min-width: 0;
 }
 
@@ -391,46 +383,12 @@ select {
   max-width: none;
 }
 
-.backtest-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
-  gap: 16px;
-  align-items: start;
-}
-
-.backtest-tools {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
-}
-
-.backtest-context .mini-actions {
-  gap: 8px;
-  padding: 0 16px 16px;
-}
-
-.backtest-context .mini-actions > * {
-  flex: 1 1 0;
-}
-
 .replay-screen {
   position: relative;
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: #060d18;
-}
-
-.rail {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
-}
-
-.stage {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
+  background: #f7f7f4;
 }
 
 .panel,
@@ -438,8 +396,8 @@ select {
 .side-card {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(10, 18, 32, 0.98), rgba(13, 21, 36, 0.98));
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgba(17, 24, 39, 0.08);
   overflow: hidden;
 }
 
@@ -464,7 +422,7 @@ select {
   inset: 0;
   border: 0;
   border-radius: 0;
-  background: #060d18;
+  background: #f7f7f4;
   box-shadow: none;
 }
 
@@ -546,19 +504,15 @@ select {
 }
 
 .status-chip[data-status='running'] {
-  border-color: rgba(34, 197, 94, 0.28);
-  background: rgba(34, 197, 94, 0.12);
-  color: var(--accent-strong);
+  border-color: rgba(22, 101, 52, 0.28);
+  background: #ecfdf3;
+  color: var(--profit);
 }
 
 .status-chip[data-status='paused'] {
-  border-color: rgba(56, 189, 248, 0.28);
-  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(21, 94, 117, 0.28);
+  background: #ecfeff;
   color: var(--info);
-}
-
-.project-rail {
-  overflow: hidden;
 }
 
 .project-form {
@@ -605,7 +559,7 @@ select {
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
-  background: rgba(56, 189, 248, 0.12);
+  background: #ecfeff;
   color: var(--info);
   flex: none;
 }
@@ -637,9 +591,9 @@ select {
 }
 
 .project-item.active {
-  border-color: rgba(34, 197, 94, 0.38);
-  background: linear-gradient(180deg, rgba(15, 118, 110, 0.18), rgba(10, 18, 32, 0.98));
-  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.08);
+  border-color: var(--text);
+  background: #f8fafc;
+  box-shadow: inset 0 0 0 1px var(--text);
 }
 
 .project-item-head {
@@ -725,7 +679,7 @@ select {
 }
 
 .text-button:hover {
-  color: #7dd3fc;
+  color: #083344;
 }
 
 .icon-button {
@@ -767,8 +721,8 @@ select {
   padding: 14px 16px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(9, 15, 27, 0.98), rgba(13, 20, 34, 0.98));
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgba(17, 24, 39, 0.08);
 }
 
 .transport-group {
@@ -818,25 +772,6 @@ select {
   font-size: 11px;
 }
 
-.backtest-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text-muted);
-}
-
-.backtest-strip strong {
-  display: block;
-  margin-top: 4px;
-  color: var(--text);
-  font-size: 14px;
-}
-
 .replay-topline {
   position: absolute;
   z-index: 5;
@@ -857,10 +792,10 @@ select {
 .replay-title,
 .replay-status,
 .replay-transport {
-  border: 1px solid rgba(38, 50, 72, 0.9);
+  border: 1px solid rgba(185, 180, 168, 0.9);
   border-radius: var(--radius);
-  background: rgba(7, 13, 24, 0.88);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.24);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 14px 36px rgba(17, 24, 39, 0.12);
   backdrop-filter: blur(10px);
 }
 
@@ -908,14 +843,114 @@ select {
   right: 12px;
   bottom: 12px;
   display: grid;
-  grid-template-columns: auto minmax(280px, 1fr) auto;
-  gap: 14px;
+  grid-template-columns: minmax(380px, 540px) auto minmax(360px, 1fr);
+  grid-template-areas:
+    "trade controls meta"
+    "log candles candles";
+  gap: 12px;
   align-items: center;
   padding: 12px;
 }
 
+.replay-transport > .trade-panel {
+  grid-area: trade;
+}
+
+.replay-transport > .transport-group {
+  grid-area: controls;
+}
+
+.replay-transport > .transport-meta {
+  grid-area: meta;
+}
+
+.replay-transport > .replay-candle-strip {
+  grid-area: candles;
+}
+
+.replay-transport > .manual-trade-log {
+  grid-area: log;
+}
+
 .replay-transport .transport-meta {
-  grid-template-columns: minmax(140px, 220px) minmax(220px, 1fr);
+  grid-template-columns: minmax(120px, 180px) minmax(220px, 1fr);
+}
+
+.trade-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.trade-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.trade-button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--text);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 900;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease, transform 160ms ease;
+}
+
+.trade-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.trade-button.buy {
+  background: #ffffff;
+}
+
+.trade-button.sell {
+  background: #111827;
+  color: #ffffff;
+}
+
+.trade-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.position-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(54px, 1fr));
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.position-metrics div {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(247, 247, 244, 0.88);
+}
+
+.position-metrics dt {
+  margin-bottom: 2px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.position-metrics dd {
+  margin: 0;
+  color: var(--text);
+  font: 800 12px/1.25 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
 }
 
 .replay-candle-strip {
@@ -931,7 +966,7 @@ select {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: rgba(5, 11, 20, 0.82);
+  background: rgba(247, 247, 244, 0.88);
 }
 
 .replay-candle-strip dt {
@@ -947,103 +982,51 @@ select {
   overflow-wrap: anywhere;
 }
 
-.inspector-panel {
-  padding-bottom: 16px;
-}
-
-.metric-grid {
+.manual-trade-log {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-  padding: 16px;
+  grid-template-columns: repeat(5, minmax(90px, 1fr));
+  gap: 6px;
+  min-width: 0;
 }
 
-.metric-grid.compact div {
-  padding: 10px 12px;
-}
-
-.metric-grid div {
-  padding: 12px;
+.manual-trade-item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 8px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: #050b14;
+  border-radius: var(--radius-sm);
+  background: rgba(247, 247, 244, 0.88);
 }
 
-.metric-grid dt {
-  margin-bottom: 4px;
-  color: var(--text-dim);
-  font-size: 10px;
+.manual-trade-item[data-side='sell'] {
+  background: #111827;
+  color: #ffffff;
 }
 
-.metric-grid dd {
-  margin: 0;
-  color: var(--text);
-  font: 600 12px/1.35 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
-  overflow-wrap: anywhere;
-}
-
-.progress-meter {
-  height: 6px;
-  margin: 0 16px 16px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+.manual-trade-item strong,
+.manual-trade-item span,
+.manual-trade-item small {
   overflow: hidden;
-  background: #0a1322;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.progress-meter span {
-  display: block;
-  height: 100%;
-  width: 0;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--info) 100%);
-  transition: width 120ms linear;
+.manual-trade-item strong {
+  font-size: 11px;
 }
 
-.candle-card {
-  margin: 0 16px 16px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: #050b14;
+.manual-trade-item span {
+  font: 700 11px/1.25 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
-.candle-card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.candle-card dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-}
-
-.candle-card dt {
+.manual-trade-item small {
   color: var(--text-dim);
   font-size: 10px;
 }
 
-.candle-card dd {
-  margin: 3px 0 0;
-  color: var(--text);
-  font: 600 12px/1.35 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-
-.mini-actions {
-  display: flex;
-  padding: 0 16px 16px;
-}
-
-.mini-actions .secondary-button {
-  width: 100%;
-  justify-content: center;
+.manual-trade-item[data-side='sell'] small {
+  color: #d1d5db;
 }
 
 .chart-actions {
@@ -1055,7 +1038,7 @@ select {
 .chart-skeleton {
   min-height: 420px;
   border-radius: var(--radius);
-  background: linear-gradient(90deg, #0b1220 25%, #162036 50%, #0b1220 75%);
+  background: linear-gradient(90deg, #ece9df 25%, #f8f7f2 50%, #ece9df 75%);
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite linear;
 }
@@ -1077,138 +1060,12 @@ select {
   font-weight: 700;
 }
 
-.indicator-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.indicator-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.legend-dot {
-  width: 14px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--info);
-}
-
-.legend-dot.k2 {
-  background: var(--warning);
-}
-
-.legend-dot.k3 {
-  background: var(--accent);
-}
-
-.data-table-panel {
-  border-top: 1px solid var(--border);
-}
-
-.data-table-panel summary {
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 13px;
-  list-style: none;
-}
-
-.data-table-panel summary::-webkit-details-marker {
-  display: none;
-}
-
-.table-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 0 12px;
-}
-
-.table-toolbar p {
-  margin: 0;
-  color: var(--text-dim);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.table-scroll {
-  overflow-x: auto;
-}
-
-table {
-  width: 100%;
-  min-width: 680px;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-
-th,
-td {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-  text-align: right;
-  font: 12px/1.4 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-
-th:first-child,
-td:first-child,
-th:nth-child(2),
-td:nth-child(2) {
-  text-align: left;
-}
-
-th {
-  color: var(--text-dim);
-  font-weight: 600;
-}
-
-td {
-  color: var(--text-muted);
-}
-
-.result-panel {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-
-.result-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.result-header strong {
-  font: 700 18px/1 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-
-.metric-grid dd.positive,
 .positive {
-  color: var(--accent-strong);
+  color: var(--profit);
 }
 
-.metric-grid dd.negative,
 .negative {
   color: var(--danger);
-}
-
-.history-card {
-  min-height: 180px;
 }
 
 .history-empty,
@@ -1217,56 +1074,6 @@ td {
   color: var(--text-dim);
   font-size: 12px;
   line-height: 1.6;
-}
-
-.history-list {
-  list-style: none;
-  display: grid;
-  gap: 2px;
-  padding: 0;
-  margin: 0;
-}
-
-.history-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 54px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.history-list li:last-child {
-  border-bottom: 0;
-}
-
-.history-list div {
-  min-width: 0;
-}
-
-.history-list strong,
-.history-list span {
-  display: block;
-}
-
-.history-list strong {
-  max-width: 190px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-}
-
-.history-list div span {
-  margin-top: 3px;
-  color: var(--text-dim);
-  font-size: 10px;
-}
-
-.history-list > li > span {
-  font: 700 12px/1 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
-  white-space: nowrap;
 }
 
 .status-pill {
@@ -1283,13 +1090,13 @@ td {
 }
 
 .status-pill[data-status='running'] {
-  background: rgba(34, 197, 94, 0.12);
-  color: var(--accent-strong);
+  background: #ecfdf3;
+  color: var(--profit);
 }
 
 .status-pill[data-status='failed'] {
-  background: rgba(251, 113, 133, 0.12);
-  color: #fecdd3;
+  background: #fff1f2;
+  color: var(--danger);
 }
 
 .status-pill[data-status='idle'] {
@@ -1314,15 +1121,21 @@ td {
 }
 
 @media (max-width: 1320px) {
-  .workspace-grid {
-    grid-template-columns: 280px minmax(0, 1fr) 320px;
-  }
-
   .replay-transport {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "trade"
+      "controls"
+      "meta"
+      "candles"
+      "log";
   }
 
   .replay-candle-strip {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .manual-trade-log {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
@@ -1337,12 +1150,7 @@ td {
     width: 100%;
   }
 
-  .workspace-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .project-layout,
-  .backtest-layout {
+  .project-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -1396,11 +1204,15 @@ td {
   .replay-candle-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .manual-trade-log {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
   .brand small {
-    letter-spacing: 0.12em;
+    letter-spacing: 0;
   }
 
   .workspace-stats {
@@ -1412,9 +1224,7 @@ td {
   .panel,
   .transport-bar,
   .project-form,
-  .project-list,
-  .project-rail .panel-head,
-  .inspector-panel .panel-head {
+  .project-list {
     padding-left: 14px;
     padding-right: 14px;
   }
@@ -1458,6 +1268,10 @@ td {
   }
 
   .replay-candle-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .manual-trade-log {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

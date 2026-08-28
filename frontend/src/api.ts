@@ -1,6 +1,4 @@
 import type {
-  BacktestRecord,
-  BacktestRequest,
   MarketMetadata,
   MarketSnapshot,
 } from './types'
@@ -52,15 +50,3 @@ export function getMarketSnapshot(params: {
   })
   return requestJson(`/api/market/snapshot?${query}`)
 }
-
-export function createBacktest(payload: BacktestRequest): Promise<BacktestRecord> {
-  return requestJson('/api/backtests', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
-}
-
-export function listBacktests(limit = 12): Promise<BacktestRecord[]> {
-  return requestJson(`/api/backtests?limit=${limit}`)
-}
-

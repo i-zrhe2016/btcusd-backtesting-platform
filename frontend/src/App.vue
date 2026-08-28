@@ -15,13 +15,14 @@ import {
   ServerCog,
   SlidersHorizontal,
   TimerReset,
+  TrendingDown,
+  TrendingUp,
 } from '@lucide/vue'
-import BacktestPanel from './components/BacktestPanel.vue'
-import HistoryPanel from './components/HistoryPanel.vue'
 import MarketChart from './components/MarketChart.vue'
-import { createBacktest, getMarketMetadata, getMarketSnapshot, listBacktests } from './api'
+import { getMarketMetadata, getMarketSnapshot } from './api'
 import { fromUtcInput, formatNumber, formatUtc } from './format'
 import {
+  applyManualTrade,
   clampReplayCursor,
   createReplayDraft,
   createReplayProjectFromDraft,
@@ -34,12 +35,15 @@ import {
   replayProgressLabel,
   saveActiveReplayProjectId,
   saveReplayProjects,
+  summarizeManualTrades,
+  type ManualTradeAction,
+  type ManualTradeSide,
   type ReplayProject,
   type ReplayProjectDraft,
 } from './replay'
-import type { BacktestRecord, BacktestRequest, MarketMetadata, MarketSnapshot } from './types'
+import type { MarketMetadata, MarketSnapshot } from './types'
 
-type AppView = 'projects' | 'replay' | 'backtest'
+type AppView = 'projects' | 'replay'
 
 const viewKey = 'btcusd.workspace.view.v2'
 const replayLengths: [number, number, number] = [30, 120, 840]
@@ -62,11 +66,6 @@ const activeProjectId = ref('')
 const replaySnapshot = ref<MarketSnapshot | null>(null)
 const replayLoading = ref(true)
 const replayError = ref('')
-const history = ref<BacktestRecord[]>([])
-const lastRecord = ref<BacktestRecord | null>(null)
-const historyLoading = ref(true)
-const backtestRunning = ref(false)
-const backtestError = ref('')
 const notice = ref('')
 const pageError = ref('')
 const projectError = ref('')
@@ -99,21 +98,29 @@ const replayStatusLabel = computed(() => {
 })
 const appStatusLabel = computed(() => {
   if (activeView.value === 'replay') return replayStatusLabel.value
-  if (activeView.value === 'backtest') return '策略回测'
   return '项目库'
 })
 const activeError = computed(() => {
   if (activeView.value === 'replay') {
     return replayError.value || pageError.value
   }
-  if (activeView.value === 'backtest') {
-    return backtestError.value || replayError.value || pageError.value
-  }
   return pageError.value
 })
-const activeProjectTimeframe = computed(() => activeProject.value?.timeframe ?? metadata.value?.base_timeframe ?? '1m')
-const activeProjectFrom = computed(() => activeProject.value?.from ?? metadata.value?.first_timestamp ?? 0)
-const activeProjectTo = computed(() => activeProject.value?.to ?? metadata.value?.last_timestamp ?? 0)
+const manualTradeStats = computed(() => summarizeManualTrades(
+  activeProject.value?.trades ?? [],
+  currentCandle.value?.close ?? null,
+  activePlaybackIndex.value,
+))
+const visibleManualTrades = computed(() => (activeProject.value?.trades ?? [])
+  .filter((trade) => trade.candleIndex <= activePlaybackIndex.value))
+const recentManualTrades = computed(() => [...visibleManualTrades.value].reverse().slice(0, 5))
+const positionLabel = computed(() => {
+  const stats = manualTradeStats.value
+  if (stats.side === 'flat') return '空仓'
+  return `${stats.side === 'long' ? '多' : '空'} ${stats.quantity}`
+})
+const averagePriceLabel = computed(() => manualTradeStats.value.averagePrice === null ? '—' : formatNumber(manualTradeStats.value.averagePrice))
+const canPlaceManualTrade = computed(() => Boolean(activeProject.value && currentCandle.value && !replayLoading.value && !replayError.value))
 const timeframeOptions = computed(() => {
   const supported = metadata.value?.supported_timeframes ?? Object.keys(timeframeLabels)
   return supported.filter((value) => value in timeframeLabels)
@@ -133,7 +140,7 @@ const projectActionLabel = computed(() => activeProject.value ? '保存并打开
 function loadAppView(): AppView {
   if (typeof window === 'undefined') return 'projects'
   const value = window.localStorage.getItem(viewKey)
-  return value === 'replay' || value === 'backtest' || value === 'projects' ? value : 'projects'
+  return value === 'replay' || value === 'projects' ? value : 'projects'
 }
 
 function saveAppView(value: AppView) {
@@ -238,14 +245,25 @@ function openReplay() {
   activeView.value = 'replay'
 }
 
-function openBacktest() {
-  pausePlayback()
-  activeView.value = 'backtest'
-}
-
 function togglePlayback() {
   if (!activeProject.value || !replaySnapshot.value?.candles.length) return
   playbackPlaying.value = !playbackPlaying.value
+}
+
+function placeManualTrade(side: ManualTradeSide) {
+  const project = activeProject.value
+  const candle = currentCandle.value
+  if (!project || !candle) return
+
+  const next = applyManualTrade(project, {
+    side,
+    candleIndex: activePlaybackIndex.value,
+    timestamp: candle.timestamp,
+    price: candle.close,
+  })
+  updateProject(next)
+  const action = next.trades.at(-1)?.action
+  setNotice(`${side === 'buy' ? 'Buy' : 'Sell'} 已按 ${formatNumber(candle.close)} 成交，${tradeActionLabel(action)}。`)
 }
 
 function createProject() {
@@ -331,33 +349,6 @@ async function loadReplaySnapshot(project: ReplayProject) {
   }
 }
 
-async function loadHistory() {
-  historyLoading.value = true
-  backtestError.value = ''
-  try {
-    history.value = await listBacktests()
-  } catch (caught) {
-    backtestError.value = caught instanceof Error ? caught.message : '回测记录加载失败。'
-  } finally {
-    historyLoading.value = false
-  }
-}
-
-async function runBacktest(request: BacktestRequest) {
-  backtestRunning.value = true
-  backtestError.value = ''
-  setNotice('回测已提交，正在计算。')
-  try {
-    lastRecord.value = await createBacktest(request)
-    setNotice(`回测“${lastRecord.value.name}”已完成。`)
-    await loadHistory()
-  } catch (caught) {
-    backtestError.value = caught instanceof Error ? caught.message : '回测执行失败。'
-  } finally {
-    backtestRunning.value = false
-  }
-}
-
 async function initialize() {
   pageError.value = ''
   try {
@@ -372,7 +363,7 @@ async function initialize() {
       saveReplayProjects(projects.value)
       saveActiveReplayProjectId(seed.id)
       syncDraftFromProject(seed)
-      await Promise.all([loadReplaySnapshot(seed), loadHistory()])
+      await loadReplaySnapshot(seed)
       return
     }
 
@@ -387,22 +378,33 @@ async function initialize() {
     const active = activeProject.value ?? projects.value[0]
     if (active) {
       syncDraftFromProject(active)
-      await Promise.all([loadReplaySnapshot(active), loadHistory()])
+      await loadReplaySnapshot(active)
     } else {
       activeView.value = 'projects'
       Object.assign(projectDraft, createReplayDraft(metadata.value))
-      await loadHistory()
     }
   } catch (caught) {
     pageError.value = caught instanceof Error ? caught.message : '平台初始化失败。'
     replayLoading.value = false
-    historyLoading.value = false
   }
 }
 
 function speedToText(speed: number): string {
   const value = Number.isFinite(speed) ? speed : 1
   return `x${value % 1 === 0 ? value.toFixed(0) : value.toFixed(2)}`
+}
+
+function formatPnl(value: number): string {
+  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
+  return `${sign}${formatNumber(Math.abs(value))}`
+}
+
+function tradeActionLabel(action: ManualTradeAction | undefined): string {
+  if (action === 'open-long') return '开多'
+  if (action === 'close-long') return '平多'
+  if (action === 'open-short') return '开空'
+  if (action === 'close-short') return '平空'
+  return '已记录'
 }
 
 watch(activeView, (value) => {
@@ -470,15 +472,6 @@ onBeforeUnmount(() => {
         >
           复盘
         </button>
-        <button
-          type="button"
-          class="mode-chip"
-          :class="{ active: activeView === 'backtest' }"
-          :aria-pressed="activeView === 'backtest'"
-          @click="openBacktest"
-        >
-          回测
-        </button>
       </div>
 
       <div class="service-state">
@@ -511,8 +504,8 @@ onBeforeUnmount(() => {
               <dd>{{ currentProgressLabel }}</dd>
             </div>
             <div>
-              <dt>当前时间</dt>
-              <dd>{{ currentTimeLabel }}</dd>
+              <dt>手动交易</dt>
+              <dd>{{ activeProject?.trades.length ?? 0 }}</dd>
             </div>
           </dl>
         </section>
@@ -612,7 +605,7 @@ onBeforeUnmount(() => {
                   </span>
                 </div>
                 <span>{{ timeframeLabels[project.timeframe] ?? project.timeframe }} · {{ projectRangeLabel(project) }}</span>
-                <span>游标 {{ project.cursorIndex + 1 }} · {{ speedToText(project.speed) }}</span>
+                <span>游标 {{ project.cursorIndex + 1 }} · 交易 {{ project.trades.length }} · {{ speedToText(project.speed) }}</span>
               </button>
             </div>
             <p v-else class="history-empty">暂无项目。填写左侧表单后会直接打开全屏 K 线复盘窗口。</p>
@@ -629,6 +622,7 @@ onBeforeUnmount(() => {
           :playing="playbackPlaying"
           :project-name="currentProjectLabel"
           :show-header="false"
+          :manual-trades="activeProject?.trades ?? []"
         />
 
         <div class="replay-topline">
@@ -645,6 +639,7 @@ onBeforeUnmount(() => {
             <span class="status-chip" :data-status="playbackPlaying ? 'running' : 'paused'">{{ replayStatusLabel }}</span>
             <span class="status-chip muted">{{ currentProgressLabel }}</span>
             <span class="status-chip muted">{{ currentTimeLabel }}</span>
+            <span class="status-chip muted">{{ positionLabel }}</span>
           </div>
         </div>
 
@@ -655,6 +650,26 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="replay-transport" aria-label="K 线播放控制">
+          <div class="trade-panel" aria-label="手动交易">
+            <div class="trade-actions">
+              <button class="trade-button buy" type="button" :disabled="!canPlaceManualTrade" @click="placeManualTrade('buy')">
+                <TrendingUp :size="18" aria-hidden="true" />
+                Buy
+              </button>
+              <button class="trade-button sell" type="button" :disabled="!canPlaceManualTrade" @click="placeManualTrade('sell')">
+                <TrendingDown :size="18" aria-hidden="true" />
+                Sell
+              </button>
+            </div>
+            <dl class="position-metrics">
+              <div><dt>持仓</dt><dd>{{ positionLabel }}</dd></div>
+              <div><dt>均价</dt><dd>{{ averagePriceLabel }}</dd></div>
+              <div><dt>已实现</dt><dd :class="{ positive: manualTradeStats.realizedPnl > 0, negative: manualTradeStats.realizedPnl < 0 }">{{ formatPnl(manualTradeStats.realizedPnl) }}</dd></div>
+              <div><dt>浮动</dt><dd :class="{ positive: manualTradeStats.unrealizedPnl > 0, negative: manualTradeStats.unrealizedPnl < 0 }">{{ formatPnl(manualTradeStats.unrealizedPnl) }}</dd></div>
+              <div><dt>净值</dt><dd :class="{ positive: manualTradeStats.netPnl > 0, negative: manualTradeStats.netPnl < 0 }">{{ formatPnl(manualTradeStats.netPnl) }}</dd></div>
+            </dl>
+          </div>
+
           <div class="transport-group">
             <button class="icon-button" type="button" aria-label="跳到开头" title="跳到开头" @click="seekToStart">
               <ChevronsLeft :size="18" aria-hidden="true" />
@@ -714,82 +729,17 @@ onBeforeUnmount(() => {
             <div><dt>收</dt><dd>{{ formatNumber(currentCandle.close) }}</dd></div>
             <div><dt>量</dt><dd>{{ formatNumber(currentCandle.volume) }}</dd></div>
           </dl>
+
+          <div v-if="recentManualTrades.length" class="manual-trade-log" aria-label="最近手动成交">
+            <div v-for="trade in recentManualTrades" :key="trade.id" class="manual-trade-item" :data-side="trade.side">
+              <strong>{{ trade.side.toUpperCase() }}</strong>
+              <span>{{ tradeActionLabel(trade.action) }}</span>
+              <span>{{ formatNumber(trade.price) }}</span>
+              <small>{{ formatUtc(trade.timestamp) }} UTC</small>
+            </div>
+          </div>
         </div>
       </section>
-
-      <template v-else>
-        <section class="workspace-head" aria-labelledby="page-title">
-          <div class="workspace-copy">
-            <p class="eyebrow">STRATEGY LAB / UTC</p>
-            <h1 id="page-title">策略回测工作台</h1>
-            <p>回测作为独立页签保留，默认使用当前复盘项目的时间范围。</p>
-          </div>
-          <dl class="workspace-stats">
-            <div>
-              <dt>当前项目</dt>
-              <dd>{{ currentProjectLabel }}</dd>
-            </div>
-            <div>
-              <dt>时间范围</dt>
-              <dd>{{ currentRangeLabel }}</dd>
-            </div>
-            <div>
-              <dt>周期</dt>
-              <dd>{{ activeProjectTimeframe }}</dd>
-            </div>
-            <div>
-              <dt>回测记录</dt>
-              <dd>{{ history.length }}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <div v-if="activeError" class="alert error-alert" role="alert">
-          <ServerCog :size="20" aria-hidden="true" />
-          <span>{{ activeError }}</span>
-          <button type="button" class="text-button" @click="initialize">重试</button>
-        </div>
-
-        <div class="backtest-layout">
-          <section class="panel backtest-context" aria-labelledby="backtest-project-title">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">CURRENT PROJECT</p>
-                <h2 id="backtest-project-title">{{ currentProjectLabel }}</h2>
-              </div>
-              <ChartCandlestick :size="22" class="heading-icon" aria-hidden="true" />
-            </div>
-            <dl class="metric-grid">
-              <div><dt>时间范围</dt><dd>{{ currentRangeLabel }}</dd></div>
-              <div><dt>进度</dt><dd>{{ currentProgressLabel }}</dd></div>
-              <div><dt>当前时间</dt><dd>{{ currentTimeLabel }}</dd></div>
-              <div><dt>速度</dt><dd>{{ currentSpeedLabel }}</dd></div>
-            </dl>
-            <div class="mini-actions">
-              <button class="secondary-button" type="button" @click="openProjects">
-                <FolderOpen :size="16" aria-hidden="true" />
-                项目库
-              </button>
-              <button class="primary-button" type="button" :disabled="!activeProject" @click="openReplay">
-                <Play :size="16" aria-hidden="true" />
-                打开复盘
-              </button>
-            </div>
-          </section>
-
-          <div class="backtest-tools">
-            <BacktestPanel
-              :timeframe="activeProjectTimeframe"
-              :from="activeProjectFrom"
-              :to="activeProjectTo"
-              :running="backtestRunning"
-              :record="lastRecord"
-              @submit="runBacktest"
-            />
-            <HistoryPanel :records="history" :loading="historyLoading" />
-          </div>
-        </div>
-      </template>
     </main>
   </div>
 </template>

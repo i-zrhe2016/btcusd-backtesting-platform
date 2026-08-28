@@ -1,6 +1,6 @@
 # BTCUSD Backtesting Platform
 
-BTCUSD 历史行情浏览与策略回测平台。项目正在从 Windows/C++ 桌面程序迁移到可在单台服务器部署的 Web 服务架构。
+BTCUSD 历史行情复盘与手动交易练习平台。项目正在从 Windows/C++ 桌面程序迁移到可在单台服务器部署的 Web 服务架构。
 
 > 当前状态：架构文档评审阶段。`services/` 下的代码是尚未按文档验收的实现草稿；文档评审通过前不应作为稳定版本部署。
 
@@ -27,8 +27,8 @@ BTCUSD 历史行情浏览与策略回测平台。项目正在从 Windows/C++ 桌
 
 | 层 | 技术 | 作用 |
 | --- | --- | --- |
-| 前端 | Vue 3 + TypeScript + Vite | 页面、K 线和回测交互 |
-| 行情服务 | Rust + Axum | Parquet 查询、周期聚合、指标计算 |
+| 前端 | Vue 3 + TypeScript + Vite | 项目库、K 线复盘和手动 Buy/Sell |
+| 行情服务 | Rust + Axum | Parquet 查询和周期聚合 |
 | 回测服务 | Rust + Axum | 策略执行、配置和回测记录 |
 | 数据库 | PostgreSQL | 用户、策略配置、回测状态与结果 |
 | 行情文件 | Parquet | BTCUSD 历史 OHLCV |

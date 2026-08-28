@@ -10,6 +10,40 @@ export interface ReplayProjectDraft {
   speed: number
 }
 
+export type ManualTradeSide = 'buy' | 'sell'
+export type ManualTradeAction = 'open-long' | 'close-long' | 'open-short' | 'close-short'
+export type ManualPositionSide = 'flat' | 'long' | 'short'
+
+export interface ManualTrade {
+  id: string
+  candleIndex: number
+  timestamp: number
+  side: ManualTradeSide
+  action: ManualTradeAction
+  price: number
+  quantity: number
+  realizedPnl: number | null
+  createdAt: string
+}
+
+export interface ManualTradeInput {
+  side: ManualTradeSide
+  candleIndex: number
+  timestamp: number
+  price: number
+}
+
+export interface ManualPositionSummary {
+  side: ManualPositionSide
+  quantity: number
+  averagePrice: number | null
+  realizedPnl: number
+  unrealizedPnl: number
+  netPnl: number
+  tradeCount: number
+  lastTrade: ManualTrade | null
+}
+
 export interface ReplayProject {
   id: string
   name: string
@@ -19,6 +53,7 @@ export interface ReplayProject {
   to: number
   speed: number
   cursorIndex: number
+  trades: ManualTrade[]
   createdAt: string
   updatedAt: string
 }
@@ -34,6 +69,7 @@ const ACTIVE_KEY = 'btcusd.replay.active.v1'
 const DEFAULT_SPEED = 1
 const MIN_SPEED = 0.25
 const MAX_SPEED = 8
+export const MANUAL_TRADE_QUANTITY = 1
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -116,6 +152,13 @@ export function createReplayProjectFromDraft(
 
   const normalizedSpeed = normalizeSpeed(draft.speed)
   const timestamp = nowIso()
+  const keepExistingTrades = Boolean(
+    existing &&
+    existing.symbol === symbol &&
+    existing.timeframe === timeframe &&
+    existing.from === from &&
+    existing.to === to,
+  )
 
   return {
     id: existing?.id ?? createId(),
@@ -126,6 +169,7 @@ export function createReplayProjectFromDraft(
     to,
     speed: normalizedSpeed,
     cursorIndex: existing?.cursorIndex ?? 0,
+    trades: keepExistingTrades ? existing?.trades ?? [] : [],
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
   }
@@ -154,6 +198,9 @@ export function normalizeReplayProject(raw: unknown): ReplayProject | null {
 
   const speed = normalizeSpeed(typeof candidate.speed === 'number' ? candidate.speed : DEFAULT_SPEED)
   const cursorIndex = Math.max(0, Math.floor(typeof candidate.cursorIndex === 'number' ? candidate.cursorIndex : 0))
+  const trades = Array.isArray(candidate.trades)
+    ? sortManualTrades(candidate.trades.map(normalizeManualTrade).filter((trade): trade is ManualTrade => Boolean(trade)))
+    : []
   const createdAt = typeof candidate.createdAt === 'string' ? candidate.createdAt : nowIso()
   const updatedAt = typeof candidate.updatedAt === 'string' ? candidate.updatedAt : createdAt
 
@@ -166,8 +213,169 @@ export function normalizeReplayProject(raw: unknown): ReplayProject | null {
     to: Math.floor(candidate.to),
     speed,
     cursorIndex,
+    trades,
     createdAt,
     updatedAt,
+  }
+}
+
+function normalizeManualTrade(raw: unknown): ManualTrade | null {
+  if (!raw || typeof raw !== 'object') return null
+  const candidate = raw as Partial<ManualTrade>
+  const action = candidate.action
+  if (
+    typeof candidate.id !== 'string' ||
+    typeof candidate.timestamp !== 'number' ||
+    typeof candidate.candleIndex !== 'number' ||
+    typeof candidate.price !== 'number' ||
+    typeof candidate.quantity !== 'number' ||
+    (candidate.side !== 'buy' && candidate.side !== 'sell') ||
+    (action !== 'open-long' && action !== 'close-long' && action !== 'open-short' && action !== 'close-short')
+  ) {
+    return null
+  }
+  if (
+    !Number.isFinite(candidate.timestamp) ||
+    !Number.isFinite(candidate.candleIndex) ||
+    !Number.isFinite(candidate.price) ||
+    !Number.isFinite(candidate.quantity) ||
+    candidate.price <= 0 ||
+    candidate.quantity <= 0
+  ) {
+    return null
+  }
+
+  return {
+    id: candidate.id,
+    candleIndex: Math.max(0, Math.floor(candidate.candleIndex)),
+    timestamp: Math.floor(candidate.timestamp),
+    side: candidate.side,
+    action,
+    price: candidate.price,
+    quantity: candidate.quantity,
+    realizedPnl: typeof candidate.realizedPnl === 'number' && Number.isFinite(candidate.realizedPnl)
+      ? candidate.realizedPnl
+      : null,
+    createdAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : nowIso(),
+  }
+}
+
+export function sortManualTrades(trades: ManualTrade[]): ManualTrade[] {
+  return [...trades].sort((left, right) => {
+    const candleOrder = left.candleIndex - right.candleIndex
+    if (candleOrder !== 0) return candleOrder
+    return left.createdAt.localeCompare(right.createdAt)
+  })
+}
+
+export function summarizeManualTrades(
+  trades: ManualTrade[],
+  currentPrice: number | null,
+  cursorIndex = Number.MAX_SAFE_INTEGER,
+): ManualPositionSummary {
+  let side: ManualPositionSide = 'flat'
+  let quantity = 0
+  let averagePrice: number | null = null
+  let realizedPnl = 0
+  let lastTrade: ManualTrade | null = null
+
+  for (const trade of sortManualTrades(trades).filter((item) => item.candleIndex <= cursorIndex)) {
+    const closeQuantity = Math.min(quantity, trade.quantity)
+    if (trade.action === 'open-long') {
+      const nextQuantity = quantity + trade.quantity
+      averagePrice = side === 'long' && averagePrice !== null
+        ? ((averagePrice * quantity) + (trade.price * trade.quantity)) / nextQuantity
+        : trade.price
+      quantity = nextQuantity
+      side = 'long'
+    }
+    if (trade.action === 'close-long' && side === 'long' && averagePrice !== null && closeQuantity > 0) {
+      realizedPnl += (trade.price - averagePrice) * closeQuantity
+      quantity -= closeQuantity
+      if (quantity <= 0) {
+        quantity = 0
+        averagePrice = null
+        side = 'flat'
+      }
+    }
+    if (trade.action === 'open-short') {
+      const nextQuantity = quantity + trade.quantity
+      averagePrice = side === 'short' && averagePrice !== null
+        ? ((averagePrice * quantity) + (trade.price * trade.quantity)) / nextQuantity
+        : trade.price
+      quantity = nextQuantity
+      side = 'short'
+    }
+    if (trade.action === 'close-short' && side === 'short' && averagePrice !== null && closeQuantity > 0) {
+      realizedPnl += (averagePrice - trade.price) * closeQuantity
+      quantity -= closeQuantity
+      if (quantity <= 0) {
+        quantity = 0
+        averagePrice = null
+        side = 'flat'
+      }
+    }
+    lastTrade = trade
+  }
+
+  const validCurrentPrice = typeof currentPrice === 'number' && Number.isFinite(currentPrice)
+  const unrealizedPnl = validCurrentPrice && averagePrice !== null
+    ? side === 'long'
+      ? (currentPrice - averagePrice) * quantity
+      : side === 'short'
+        ? (averagePrice - currentPrice) * quantity
+        : 0
+    : 0
+
+  return {
+    side,
+    quantity,
+    averagePrice,
+    realizedPnl,
+    unrealizedPnl,
+    netPnl: realizedPnl + unrealizedPnl,
+    tradeCount: trades.filter((item) => item.candleIndex <= cursorIndex).length,
+    lastTrade,
+  }
+}
+
+export function applyManualTrade(project: ReplayProject, input: ManualTradeInput): ReplayProject {
+  if (!Number.isFinite(input.candleIndex) || !Number.isFinite(input.timestamp) || !Number.isFinite(input.price) || input.price <= 0) {
+    return project
+  }
+
+  const candleIndex = Math.max(0, Math.floor(input.candleIndex))
+  const retainedTrades = sortManualTrades(project.trades.filter((trade) => trade.candleIndex <= candleIndex))
+  const position = summarizeManualTrades(retainedTrades, input.price, candleIndex)
+  const quantity = MANUAL_TRADE_QUANTITY
+  const action: ManualTradeAction = input.side === 'buy'
+    ? position.side === 'short' ? 'close-short' : 'open-long'
+    : position.side === 'long' ? 'close-long' : 'open-short'
+  const realizedPnl = action === 'close-long' && position.averagePrice !== null
+    ? (input.price - position.averagePrice) * quantity
+    : action === 'close-short' && position.averagePrice !== null
+      ? (position.averagePrice - input.price) * quantity
+      : null
+  const timestamp = nowIso()
+
+  return {
+    ...project,
+    cursorIndex: candleIndex,
+    trades: sortManualTrades([
+      ...retainedTrades,
+      {
+        id: createId(),
+        candleIndex,
+        timestamp: Math.floor(input.timestamp),
+        side: input.side,
+        action,
+        price: input.price,
+        quantity,
+        realizedPnl,
+        createdAt: timestamp,
+      },
+    ]),
+    updatedAt: timestamp,
   }
 }
 

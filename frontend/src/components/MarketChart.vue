@@ -4,11 +4,16 @@ import {
   CandlestickSeries,
   ColorType,
   createChart,
+  createSeriesMarkers,
   type IChartApi,
+  type ISeriesMarkersPluginApi,
   type ISeriesApi,
+  type SeriesMarker,
+  type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
 import { RotateCcw, ZoomIn, ZoomOut } from '@lucide/vue'
+import type { ManualTrade } from '../replay'
 import type { MarketSnapshot } from '../types'
 import { formatUtc } from '../format'
 
@@ -19,16 +24,19 @@ const props = withDefaults(defineProps<{
   playing?: boolean
   projectName?: string
   showHeader?: boolean
+  manualTrades?: ManualTrade[]
 }>(), {
   playbackIndex: undefined,
   playing: false,
   projectName: '',
   showHeader: true,
+  manualTrades: () => [],
 })
 
 const priceContainer = ref<HTMLElement | null>(null)
 let priceChart: IChartApi | null = null
 let candleSeries: ISeriesApi<'Candlestick'> | null = null
+let tradeMarkers: ISeriesMarkersPluginApi<Time> | null = null
 let resizeObserver: ResizeObserver | null = null
 
 const totalCandles = computed(() => props.snapshot?.candles.length ?? 0)
@@ -42,6 +50,19 @@ const visibleCount = computed(() => {
 
 const visibleCandles = computed(() => props.snapshot?.candles.slice(0, visibleCount.value) ?? [])
 const currentCandle = computed(() => visibleCandles.value.at(-1) ?? null)
+const visibleTradeMarkers = computed<SeriesMarker<Time>[]>(() =>
+  props.manualTrades
+    .filter((trade) => trade.candleIndex < visibleCount.value)
+    .map((trade) => ({
+      id: trade.id,
+      time: trade.timestamp as UTCTimestamp,
+      position: trade.side === 'buy' ? 'belowBar' : 'aboveBar',
+      shape: trade.side === 'buy' ? 'arrowUp' : 'arrowDown',
+      color: '#111827',
+      text: trade.side === 'buy' ? 'BUY' : 'SELL',
+      size: 1.25,
+    })),
+)
 
 const summary = computed(() => {
   const candles = visibleCandles.value
@@ -67,31 +88,31 @@ function chartOptions() {
     width: size.width,
     height: size.height,
     layout: {
-      background: { type: ColorType.Solid, color: '#060d18' },
-      textColor: '#a6b3c7',
+      background: { type: ColorType.Solid, color: '#f7f7f4' },
+      textColor: '#111827',
       fontFamily: '"Fira Code", "IBM Plex Mono", "SFMono-Regular", Consolas, monospace',
     },
     grid: {
-      vertLines: { color: '#152033' },
-      horzLines: { color: '#152033' },
+      vertLines: { color: 'rgba(0, 0, 0, 0)', visible: false },
+      horzLines: { color: 'rgba(0, 0, 0, 0)', visible: false },
     },
     rightPriceScale: {
-      borderColor: '#324154',
+      borderColor: '#d7d7d2',
       scaleMargins: {
         top: 0.08,
         bottom: 0.1,
       },
     },
     timeScale: {
-      borderColor: '#324154',
+      borderColor: '#d7d7d2',
       timeVisible: true,
       secondsVisible: false,
       rightOffset: 8,
       barSpacing: 12,
     },
     crosshair: {
-      vertLine: { color: '#64748b' },
-      horzLine: { color: '#64748b' },
+      vertLine: { color: '#111827' },
+      horzLine: { color: '#111827' },
     },
   }
 }
@@ -102,6 +123,7 @@ function disposeCharts() {
   priceChart?.remove()
   priceChart = null
   candleSeries = null
+  tradeMarkers = null
 }
 
 function playbackWindowBars() {
@@ -134,6 +156,7 @@ function setSeriesData() {
     close: candle.close,
   })))
 
+  tradeMarkers?.setMarkers(visibleTradeMarkers.value)
   setPlaybackRange()
 }
 
@@ -148,13 +171,14 @@ function buildCharts() {
   disposeCharts()
   priceChart = createChart(priceContainer.value, chartOptions())
   candleSeries = priceChart.addSeries(CandlestickSeries, {
-    upColor: '#2dd4bf',
-    downColor: '#fb7185',
-    borderUpColor: '#5eead4',
-    borderDownColor: '#fda4af',
-    wickUpColor: '#5eead4',
-    wickDownColor: '#fda4af',
+    upColor: '#f7f7f4',
+    downColor: '#111827',
+    borderUpColor: '#111827',
+    borderDownColor: '#111827',
+    wickUpColor: '#111827',
+    wickDownColor: '#111827',
   })
+  tradeMarkers = createSeriesMarkers(candleSeries, [], { autoScale: true, zOrder: 'top' })
 
   resizeObserver?.disconnect()
   if (typeof ResizeObserver !== 'undefined') {
@@ -191,7 +215,7 @@ watch(() => props.snapshot, async () => {
   }
 }, { immediate: true })
 
-watch([() => props.playbackIndex, () => props.playing], async () => {
+watch([() => props.playbackIndex, () => props.playing, () => props.manualTrades], async () => {
   await nextTick()
   resizeChart()
   setSeriesData()
