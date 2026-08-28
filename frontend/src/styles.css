@@ -854,8 +854,8 @@ select {
 
 .console-strip {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto minmax(240px, auto);
-  grid-template-areas: "summary timeframe play stats";
+  grid-template-columns: minmax(220px, 1fr) auto auto minmax(156px, auto) minmax(240px, auto);
+  grid-template-areas: "summary timeframe play trades stats";
   gap: 10px;
   align-items: center;
   min-height: 44px;
@@ -910,10 +910,22 @@ select {
 .console-play {
   min-height: 40px;
   white-space: nowrap;
+  grid-area: play;
 }
 
-.console-play {
-  grid-area: play;
+.console-trade-actions {
+  grid-area: trades;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(68px, 1fr));
+  gap: 8px;
+}
+
+.console-trade-actions .trade-button {
+  min-width: 68px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .console-quick-stats {
@@ -1263,8 +1275,8 @@ select {
 
 @media (max-width: 1320px) {
   .console-strip {
-    grid-template-columns: minmax(160px, 1fr) auto auto minmax(96px, auto);
-    grid-template-areas: "summary timeframe play stats";
+    grid-template-columns: minmax(160px, 1fr) auto auto minmax(148px, auto) minmax(96px, auto);
+    grid-template-areas: "summary timeframe play trades stats";
   }
 
   .console-quick-stats span:not(:first-child) {
@@ -1310,8 +1322,8 @@ select {
   }
 
   .console-strip {
-    grid-template-columns: minmax(0, 1fr) auto auto minmax(96px, auto);
-    grid-template-areas: "summary timeframe play stats";
+    grid-template-columns: minmax(0, 1fr) auto auto minmax(148px, auto) minmax(96px, auto);
+    grid-template-areas: "summary timeframe play trades stats";
   }
 
   .timeframe-control {
@@ -1427,8 +1439,8 @@ select {
   }
 
   .console-strip {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas: "summary timeframe play";
+    grid-template-columns: minmax(0, 1fr) auto minmax(104px, auto) auto;
+    grid-template-areas: "summary timeframe trades play";
     gap: 8px;
   }
 
@@ -1441,8 +1453,33 @@ select {
   }
 
   .timeframe-control {
-    grid-template-columns: auto auto;
+    grid-template-columns: auto;
     width: auto;
+  }
+
+  .timeframe-control > span {
+    display: none;
+  }
+
+  .timeframe-control select {
+    min-width: 72px;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .console-trade-actions {
+    gap: 8px;
+  }
+
+  .console-trade-actions .trade-button {
+    min-width: 48px;
+    padding-right: 6px;
+    padding-left: 6px;
+    gap: 0;
+  }
+
+  .console-trade-actions .trade-button svg {
+    display: none;
   }
 
   .console-play {

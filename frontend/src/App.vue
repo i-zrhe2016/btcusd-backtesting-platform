@@ -10,11 +10,14 @@ import {
   RefreshCw,
   ServerCog,
   SlidersHorizontal,
+  TrendingDown,
+  TrendingUp,
 } from '@lucide/vue'
 import MarketChart from './components/MarketChart.vue'
 import { getMarketMetadata, getMarketSnapshot } from './api'
 import { fromUtcInput, formatNumber, formatUtc } from './format'
 import {
+  applyManualTrade,
   clampReplayCursor,
   createReplayDraft,
   createReplayProjectFromDraft,
@@ -34,6 +37,8 @@ import {
   saveReplayProjects,
   summarizeManualTrades,
   timeframeStepSeconds,
+  type ManualTradeAction,
+  type ManualTradeSide,
   type ReplayProject,
   type ReplayProjectDraft,
 } from './replay'
@@ -121,6 +126,9 @@ const positionLabel = computed(() => {
   if (stats.side === 'flat') return '空仓'
   return `${stats.side === 'long' ? '多' : '空'} ${stats.quantity}`
 })
+const canPlaceManualTrade = computed(() => Boolean(
+  activeProject.value && currentCandle.value && !replayLoading.value && !replayError.value,
+))
 const currentTimeframeValue = computed(() => activeProject.value?.timeframe ?? projectDraft.timeframe)
 const timeframeOptions = computed(() => {
   const supported = metadata.value?.supported_timeframes ?? Object.keys(timeframeLabels)
@@ -269,6 +277,22 @@ function openReplay() {
 function togglePlayback() {
   if (!activeProject.value || !replaySnapshot.value?.candles.length) return
   playbackPlaying.value = !playbackPlaying.value
+}
+
+function placeManualTrade(side: ManualTradeSide) {
+  const project = activeProject.value
+  const candle = currentCandle.value
+  if (!project || !candle || !canPlaceManualTrade.value) return
+
+  const next = applyManualTrade(project, {
+    side,
+    candleIndex: activePlaybackIndex.value,
+    timestamp: candle.timestamp,
+    price: candle.close,
+  })
+  updateProject(next)
+  const action = next.trades.at(-1)?.action
+  setNotice(`${side === 'buy' ? 'Buy' : 'Sell'} 已按 ${formatNumber(candle.close)} 成交，${tradeActionLabel(action)}。`)
 }
 
 function createProject() {
@@ -485,6 +509,14 @@ async function initialize() {
 function speedToText(speed: number): string {
   const value = Number.isFinite(speed) ? speed : 1
   return `x${value % 1 === 0 ? value.toFixed(0) : value.toFixed(2)}`
+}
+
+function tradeActionLabel(action: ManualTradeAction | undefined): string {
+  if (action === 'open-long') return '开多'
+  if (action === 'close-long') return '平多'
+  if (action === 'open-short') return '开空'
+  if (action === 'close-short') return '平空'
+  return '已记录'
 }
 
 watch(activeView, (value) => {
@@ -753,6 +785,17 @@ onBeforeUnmount(() => {
               <Play v-else :size="18" aria-hidden="true" />
               {{ playbackPlaying ? '暂停' : '播放' }}
             </button>
+
+            <div class="console-trade-actions" aria-label="手动交易">
+              <button class="trade-button buy" type="button" :disabled="!canPlaceManualTrade" @click="placeManualTrade('buy')">
+                <TrendingUp :size="16" aria-hidden="true" />
+                Buy
+              </button>
+              <button class="trade-button sell" type="button" :disabled="!canPlaceManualTrade" @click="placeManualTrade('sell')">
+                <TrendingDown :size="16" aria-hidden="true" />
+                Sell
+              </button>
+            </div>
 
             <div class="console-quick-stats" aria-label="当前复盘状态">
               <span>{{ currentProgressLabel }}</span>
