@@ -10,6 +10,14 @@
 
 公网只暴露第一项和业务 API；内部探针通过 `docker compose exec` 或容器健康检查访问。
 
+## 更新历史行情
+
+1. 使用 `import_coinbase_history` 按 [Parquet 行情数据规范](../data/parquet.md) 导入；中断后重复相同命令即可从检查点继续。
+2. 确认 `data/market/manifest.json` 的 `candle_count`、覆盖起止时间、缺失桶数和 SHA-256。
+3. 执行 `docker compose restart market-data`，等待健康检查通过。
+4. 访问 `/api/market/meta`，再用一个历史 `from`/`to` 窗口验证返回非空 K 线。
+5. 保留 `.parquet.previous`，出现异常时恢复它并重启行情服务。
+
 ## 日志
 
 Rust 服务输出单行 JSON 到 stdout，至少包含时间、级别、服务名、请求路径、状态码、耗时和请求 ID。Nginx 将请求 ID 传给后端。日志不得包含数据库 URL、密码、完整用户配置或大段行情结果。
@@ -52,4 +60,3 @@ Compose 默认使用日志轮转，单文件上限 10 MiB、保留 5 个文件�
 ## 监控阈值
 
 M1 先使用容器健康检查与主机监控。建议告警：容器连续 3 次不健康、磁盘剩余小于 15%、PostgreSQL volume 无法写入、行情元数据意外变化、5xx 比例连续 5 分钟超过 5%。
-

@@ -15,6 +15,18 @@ M1 使用单文件 `/data/btcusd_1m.parquet`，容器内只读。文件内容必
 
 推荐使用 Snappy 压缩和约 100,000 行的 row group。文件名固定，版本通过 SHA-256、覆盖起止时间和生成记录区分。
 
+## 历史数据导入
+
+仓库提供 `import_coinbase_history` 示例负责从 Coinbase Exchange 分片获取 BTC-USD 1m OHLCV，并在完整校验后原子替换 Parquet：
+
+```bash
+cargo run -p market-data-service --example import_coinbase_history -- \
+  data/market/btcusd_1m.parquet \
+  2016-01-01T00:00:00Z now
+```
+
+导入中的临时 CSV 与 JSON 检查点可安全保留；重新执行相同命令会续传。完成后应检查同目录 `manifest.json` 的覆盖范围、缺失桶数和 SHA-256，再重启 `market-data`。开发环境只生成少量样本时使用 `fetch_coinbase_fixture`。
+
 ## 时间与聚合
 
 - `1m/15m/30m/1h/2h/4h/1d` 按 Unix UTC 固定秒数向下取整。
@@ -44,4 +56,3 @@ M1 使用单文件 `/data/btcusd_1m.parquet`，容器内只读。文件内容必
 ## 扩展路径
 
 当单文件扫描或启动内存超过目标时，按 `symbol/year/month` 分区并引入清单索引。分区只是行情服务内部变化，公网 API 不变。M1 不提前引入对象存储或查询引擎。
-

@@ -42,6 +42,16 @@ cargo run -p market-data-service --example fetch_coinbase_fixture -- data/market
 
 该命令会同时写入 `data/market/manifest.json`。它只用于开发验证，不替代生产历史数据构建流程。
 
+如需导入完整的 Coinbase BTC-USD 1 分钟历史 OHLCV，使用仓库内的可续传导入器：
+
+```bash
+cargo run -p market-data-service --example import_coinbase_history -- \
+  data/market/btcusd_1m.parquet \
+  2016-01-01T00:00:00Z now
+```
+
+导入器按 Coinbase 单次 300 根的限制分片请求，默认使用 6 个 worker 和 120ms 全局请求间隔；可通过 `COINBASE_FETCH_WORKERS`、`COINBASE_REQUEST_PAUSE_MS` 调整。导入期间会在数据目录留下 `.history.csv.part` 和 `.history.progress.json`，再次运行同一命令会从检查点继续。完整校验和 Parquet 原子替换成功后，这两个临时文件会自动删除，并保留 `.parquet.previous` 作为回滚副本。该过程需要较长时间和额外磁盘空间，不适合在每次开发启动时执行。
+
 ## 安装依赖
 
 在仓库根目录安装前端依赖：

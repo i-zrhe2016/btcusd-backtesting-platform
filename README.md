@@ -4,6 +4,12 @@ BTCUSD 历史行情复盘与手动交易练习平台。项目正在从 Windows/C
 
 > 当前状态：架构文档评审阶段。`services/` 下的代码是尚未按文档验收的实现草稿；文档评审通过前不应作为稳定版本部署。
 
+## 总体架构
+
+![单机部署总体架构](docs/diagrams/deployment.svg)
+
+架构图源码见 [部署图](docs/diagrams/deployment.puml)。
+
 ## 文档索引
 
 | 模块 | 文档 |
