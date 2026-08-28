@@ -44,11 +44,12 @@ const chartTheme = {
   text: '#dbe4ee',
   border: '#334155',
   crosshair: '#cbd5e1',
-  candleUpBorder: '#f8fafc',
-  candleDown: '#94a3b8',
-  candleDownBorder: '#cbd5e1',
-  markerBuy: '#f8fafc',
-  markerSell: '#94a3b8',
+  candleUp: '#22c55e',
+  candleUpBorder: '#4ade80',
+  candleDown: '#ef4444',
+  candleDownBorder: '#f87171',
+  markerBuy: '#22c55e',
+  markerSell: '#ef4444',
 }
 
 const totalCandles = computed(() => props.snapshot?.candles.length ?? 0)
@@ -183,7 +184,7 @@ function buildCharts() {
   disposeCharts()
   priceChart = createChart(priceContainer.value, chartOptions())
   candleSeries = priceChart.addSeries(CandlestickSeries, {
-    upColor: 'transparent',
+    upColor: chartTheme.candleUp,
     downColor: chartTheme.candleDown,
     borderUpColor: chartTheme.candleUpBorder,
     borderDownColor: chartTheme.candleDownBorder,
