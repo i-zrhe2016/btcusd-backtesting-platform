@@ -18,6 +18,9 @@
   --danger: #991b1b;
   --profit: #166534;
   --focus: #111827;
+  --chart-bg: #050505;
+  --chart-border: #334155;
+  --chart-text: #dbe4ee;
   --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 8px;
@@ -388,7 +391,7 @@ select {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: #f7f7f4;
+  background: var(--chart-bg);
 }
 
 .panel,
@@ -422,13 +425,14 @@ select {
   inset: 0;
   border: 0;
   border-radius: 0;
-  background: #f7f7f4;
+  background: var(--chart-bg);
   box-shadow: none;
 }
 
 .price-chart {
   width: 100%;
   min-height: 520px;
+  background: var(--chart-bg);
 }
 
 .chart-card-bare .price-chart,
@@ -437,6 +441,21 @@ select {
   height: 100%;
   min-height: 0;
   border-radius: 0;
+}
+
+.fullscreen-chart .chart-skeleton {
+  background: linear-gradient(90deg, #050505 25%, #141414 50%, #050505 75%);
+  background-size: 200% 100%;
+}
+
+.fullscreen-chart .empty-state {
+  border-color: var(--chart-border);
+  background: var(--chart-bg);
+  color: var(--chart-text);
+}
+
+.fullscreen-chart .empty-state p {
+  color: var(--chart-text);
 }
 
 .panel-head,

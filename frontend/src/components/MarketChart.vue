@@ -39,6 +39,18 @@ let candleSeries: ISeriesApi<'Candlestick'> | null = null
 let tradeMarkers: ISeriesMarkersPluginApi<Time> | null = null
 let resizeObserver: ResizeObserver | null = null
 
+const chartTheme = {
+  background: '#050505',
+  text: '#dbe4ee',
+  border: '#334155',
+  crosshair: '#cbd5e1',
+  candleUpBorder: '#f8fafc',
+  candleDown: '#94a3b8',
+  candleDownBorder: '#cbd5e1',
+  markerBuy: '#f8fafc',
+  markerSell: '#94a3b8',
+}
+
 const totalCandles = computed(() => props.snapshot?.candles.length ?? 0)
 
 const visibleCount = computed(() => {
@@ -58,7 +70,7 @@ const visibleTradeMarkers = computed<SeriesMarker<Time>[]>(() =>
       time: trade.timestamp as UTCTimestamp,
       position: trade.side === 'buy' ? 'belowBar' : 'aboveBar',
       shape: trade.side === 'buy' ? 'arrowUp' : 'arrowDown',
-      color: '#111827',
+      color: trade.side === 'buy' ? chartTheme.markerBuy : chartTheme.markerSell,
       text: trade.side === 'buy' ? 'BUY' : 'SELL',
       size: 1.25,
     })),
@@ -88,8 +100,8 @@ function chartOptions() {
     width: size.width,
     height: size.height,
     layout: {
-      background: { type: ColorType.Solid, color: '#f7f7f4' },
-      textColor: '#111827',
+      background: { type: ColorType.Solid, color: chartTheme.background },
+      textColor: chartTheme.text,
       fontFamily: '"Fira Code", "IBM Plex Mono", "SFMono-Regular", Consolas, monospace',
     },
     grid: {
@@ -97,22 +109,22 @@ function chartOptions() {
       horzLines: { color: 'rgba(0, 0, 0, 0)', visible: false },
     },
     rightPriceScale: {
-      borderColor: '#d7d7d2',
+      borderColor: chartTheme.border,
       scaleMargins: {
         top: 0.08,
         bottom: 0.1,
       },
     },
     timeScale: {
-      borderColor: '#d7d7d2',
+      borderColor: chartTheme.border,
       timeVisible: true,
       secondsVisible: false,
       rightOffset: 8,
       barSpacing: 12,
     },
     crosshair: {
-      vertLine: { color: '#111827' },
-      horzLine: { color: '#111827' },
+      vertLine: { color: chartTheme.crosshair },
+      horzLine: { color: chartTheme.crosshair },
     },
   }
 }
@@ -171,12 +183,12 @@ function buildCharts() {
   disposeCharts()
   priceChart = createChart(priceContainer.value, chartOptions())
   candleSeries = priceChart.addSeries(CandlestickSeries, {
-    upColor: '#f7f7f4',
-    downColor: '#111827',
-    borderUpColor: '#111827',
-    borderDownColor: '#111827',
-    wickUpColor: '#111827',
-    wickDownColor: '#111827',
+    upColor: 'transparent',
+    downColor: chartTheme.candleDown,
+    borderUpColor: chartTheme.candleUpBorder,
+    borderDownColor: chartTheme.candleDownBorder,
+    wickUpColor: chartTheme.candleUpBorder,
+    wickDownColor: chartTheme.candleDownBorder,
     priceLineVisible: false,
   })
   tradeMarkers = createSeriesMarkers(candleSeries, [], { autoScale: true, zOrder: 'top' })
