@@ -971,6 +971,43 @@ select {
   grid-template-columns: minmax(120px, 180px) minmax(220px, 1fr);
 }
 
+.lazy-load-control {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(217, 214, 204, 0.8);
+}
+
+.lazy-load-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lazy-load-copy span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.lazy-load-copy small {
+  color: var(--text-dim);
+  font: 11px/1.35 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lazy-load-control .secondary-button {
+  min-height: 40px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .trade-panel {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

@@ -4,8 +4,12 @@ import {
   clampReplayCursor,
   createReplayProjectFromDraft,
   loadReplayProjects,
+  nextReplayWindowStart,
+  reconcileReplayProject,
+  replayWindowEnd,
   saveReplayProjects,
   summarizeManualTrades,
+  timeframeStepSeconds,
   type ReplayProject,
 } from './replay'
 
@@ -98,6 +102,41 @@ describe('replay helpers', () => {
     expect(clampReplayCursor(4, 12)).toBe(4)
     expect(clampReplayCursor(99, 12)).toBe(11)
     expect(clampReplayCursor(5, 0)).toBe(0)
+  })
+
+  it('creates bounded lazy-loading windows', () => {
+    expect(timeframeStepSeconds('1m')).toBe(60)
+    expect(replayWindowEnd(1_000, 20_000, '1m')).toBe(15_400)
+    expect(nextReplayWindowStart(15_339, '1m', 15_400)).toBe(15_400)
+    expect(nextReplayWindowStart(undefined, '1m', 15_400)).toBe(15_400)
+  })
+
+  it('moves projects into the current market coverage after a data refresh', () => {
+    const project = createReplayProjectFromDraft({
+      name: 'Yesterday Replay',
+      symbol: 'BTCUSD',
+      timeframe: '1m',
+      fromInput: '2026-08-27T00:00',
+      toInput: '2026-08-27T04:00',
+      speed: 1,
+    })
+    const aligned = reconcileReplayProject(project, {
+      symbol: 'BTCUSD',
+      base_timeframe: '1m',
+      source: 'Parquet',
+      candle_count: 241,
+      first_timestamp: 2_000,
+      last_timestamp: 2_240,
+      supported_timeframes: ['1m'],
+    })
+
+    expect(aligned).toMatchObject({
+      from: 2_000,
+      to: 2_240 + 60,
+      cursorIndex: 0,
+      trades: [],
+    })
+    expect(aligned).not.toBe(project)
   })
 
   it('opens and closes long positions with fixed size manual trades', () => {

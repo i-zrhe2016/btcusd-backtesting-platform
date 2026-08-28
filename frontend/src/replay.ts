@@ -70,6 +70,7 @@ const DEFAULT_SPEED = 1
 const MIN_SPEED = 0.25
 const MAX_SPEED = 8
 export const MANUAL_TRADE_QUANTITY = 1
+export const REPLAY_PAGE_SIZE = 240
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -104,11 +105,82 @@ export function clampReplayCursor(index: number, totalCandles: number): number {
   return clamp(Math.floor(index), 0, totalCandles - 1)
 }
 
+export function timeframeStepSeconds(timeframe: string): number {
+  switch (timeframe) {
+    case '15m':
+      return 15 * 60
+    case '30m':
+      return 30 * 60
+    case '1h':
+      return 60 * 60
+    case '2h':
+      return 2 * 60 * 60
+    case '4h':
+      return 4 * 60 * 60
+    case '1d':
+      return 24 * 60 * 60
+    case '1w':
+      return 7 * 24 * 60 * 60
+    case '1M':
+      return 31 * 24 * 60 * 60
+    case '1m':
+    default:
+      return 60
+  }
+}
+
+export function replayWindowEnd(from: number, to: number, timeframe: string): number {
+  return Math.min(to, from + (timeframeStepSeconds(timeframe) * REPLAY_PAGE_SIZE))
+}
+
+export function nextReplayWindowStart(
+  lastTimestamp: number | undefined,
+  timeframe: string,
+  fallback: number,
+): number {
+  if (lastTimestamp === undefined || !Number.isFinite(lastTimestamp)) return fallback
+  return Math.max(fallback, lastTimestamp + timeframeStepSeconds(timeframe))
+}
+
+export function reconcileReplayProject(project: ReplayProject, market: MarketMetadata): ReplayProject {
+  const baseStep = timeframeStepSeconds(market.base_timeframe)
+  const availableStart = market.first_timestamp
+  const availableEnd = market.last_timestamp + baseStep
+  if (
+    !Number.isFinite(availableStart) ||
+    !Number.isFinite(availableEnd) ||
+    availableEnd <= availableStart
+  ) {
+    return project
+  }
+
+  const boundedFrom = Math.max(project.from, availableStart)
+  const boundedTo = Math.min(project.to, availableEnd)
+  const hasOverlap = boundedFrom < boundedTo
+  const requestedDuration = Math.max(project.to - project.from, timeframeStepSeconds(project.timeframe))
+  const availableDuration = availableEnd - availableStart
+  const duration = Math.min(requestedDuration, availableDuration)
+  const from = hasOverlap ? boundedFrom : availableEnd - duration
+  const to = hasOverlap ? boundedTo : availableEnd
+
+  if (from === project.from && to === project.to) return project
+  return {
+    ...project,
+    from,
+    to,
+    cursorIndex: 0,
+    trades: [],
+    updatedAt: nowIso(),
+  }
+}
+
 export function createReplayDraft(metadata: MarketMetadata | null): ReplayProjectDraft {
   const symbol = metadata?.symbol ?? 'BTCUSD'
   const timeframe = metadata?.base_timeframe ?? '1m'
   const start = metadata?.first_timestamp ?? Math.floor(Date.now() / 1000) - 6 * 60 * 60
-  const end = metadata?.last_timestamp ?? Math.floor(Date.now() / 1000)
+  const end = metadata
+    ? metadata.last_timestamp + timeframeStepSeconds(metadata.base_timeframe)
+    : Math.floor(Date.now() / 1000)
   return {
     name: `${symbol} ${timeframe} Replay`,
     symbol,

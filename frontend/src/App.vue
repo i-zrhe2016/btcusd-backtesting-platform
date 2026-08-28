@@ -32,7 +32,11 @@ import {
   draftFromProject,
   loadActiveReplayProjectId,
   loadReplayProjects,
+  nextReplayWindowStart,
   projectRangeLabel,
+  reconcileReplayProject,
+  replayWindowEnd,
+  REPLAY_PAGE_SIZE,
   replayDelayMs,
   replayProgressLabel,
   saveActiveReplayProjectId,
@@ -68,6 +72,9 @@ const activeProjectId = ref('')
 const replaySnapshot = ref<MarketSnapshot | null>(null)
 const replayLoading = ref(true)
 const replayError = ref('')
+const replayWindowLoading = ref(false)
+const replayWindowError = ref('')
+const replayNextFrom = ref<number | null>(null)
 const notice = ref('')
 const pageError = ref('')
 const projectError = ref('')
@@ -82,6 +89,23 @@ let playbackTimer: number | null = null
 
 const activeProject = computed(() => projects.value.find((project) => project.id === activeProjectId.value) ?? null)
 const totalReplayCandles = computed(() => replaySnapshot.value?.candles.length ?? 0)
+const replayHasMore = computed(() => {
+  const project = activeProject.value
+  return Boolean(project && replayNextFrom.value !== null && replayNextFrom.value < project.to)
+})
+const replayWindowStatus = computed(() => {
+  if (replayWindowLoading.value) return `正在加载… 已加载 ${totalReplayCandles.value} 根`
+  if (replayWindowError.value) return `加载失败：${replayWindowError.value}`
+  if (!totalReplayCandles.value) return '当前窗口暂无数据'
+  return replayHasMore.value
+    ? `已加载 ${totalReplayCandles.value} 根，还可继续加载`
+    : `当前范围已加载 ${totalReplayCandles.value} 根`
+})
+const replayWindowButtonLabel = computed(() => {
+  if (replayWindowLoading.value) return '加载中'
+  if (replayWindowError.value) return '重试加载'
+  return replayHasMore.value ? '加载更多 K 线' : '已全部加载'
+})
 const activePlaybackIndex = computed(() => clampReplayCursor(activeProject.value?.cursorIndex ?? 0, totalReplayCandles.value))
 const chartPlaybackIndex = computed(() => {
   if (activeView.value === 'replay') {
@@ -168,6 +192,15 @@ function persistProjectsState() {
 function updateProject(project: ReplayProject) {
   projects.value = projects.value.map((current) => (current.id === project.id ? project : current))
   persistProjectsState()
+}
+
+function alignProjectToMarket(project: ReplayProject): { project: ReplayProject; changed: boolean } {
+  if (!metadata.value) return { project, changed: false }
+  const aligned = reconcileReplayProject(project, metadata.value)
+  if (aligned === project) return { project, changed: false }
+  projects.value = projects.value.map((current) => (current.id === project.id ? aligned : current))
+  saveReplayProjects(projects.value)
+  return { project: aligned, changed: true }
 }
 
 function updateProjectCursor(projectId: string, cursorIndex: number) {
@@ -341,8 +374,9 @@ function saveActiveProject() {
 }
 
 function selectProject(projectId: string) {
-  const project = projects.value.find((item) => item.id === projectId)
-  if (!project) return
+  const storedProject = projects.value.find((item) => item.id === projectId)
+  if (!storedProject) return
+  const { project, changed } = alignProjectToMarket(storedProject)
   projectError.value = ''
   activeProjectId.value = project.id
   saveActiveReplayProjectId(project.id)
@@ -350,23 +384,50 @@ function selectProject(projectId: string) {
   playbackPlaying.value = false
   activeView.value = 'replay'
   void loadReplaySnapshot(project)
+  if (changed) setNotice('项目时间范围已调整到当前可用行情，旧区间交易记录已清除。')
+}
+
+function mergeMarketSnapshots(current: MarketSnapshot, incoming: MarketSnapshot): MarketSnapshot {
+  const candles = new Map(current.candles.map((candle) => [candle.timestamp, candle]))
+  for (const candle of incoming.candles) {
+    candles.set(candle.timestamp, candle)
+  }
+  return {
+    ...current,
+    candles: [...candles.values()].sort((left, right) => left.timestamp - right.timestamp),
+  }
+}
+
+function nextReplayRequestFrom(snapshot: MarketSnapshot, project: ReplayProject, requestedTo: number): number | null {
+  const nextFrom = nextReplayWindowStart(
+    snapshot.candles.at(-1)?.timestamp,
+    project.timeframe,
+    requestedTo,
+  )
+  return nextFrom < project.to ? nextFrom : null
 }
 
 async function loadReplaySnapshot(project: ReplayProject) {
   const requestId = ++snapshotRequestId
   replayLoading.value = true
   replayError.value = ''
+  replayWindowLoading.value = false
+  replayWindowError.value = ''
+  replayNextFrom.value = null
   replaySnapshot.value = null
 
   try {
+    const requestedTo = replayWindowEnd(project.from, project.to, project.timeframe)
     const snapshot = await getMarketSnapshot({
       timeframe: project.timeframe,
       from: project.from,
-      to: project.to,
+      to: requestedTo,
+      limit: REPLAY_PAGE_SIZE,
       lengths: replayLengths,
     })
     if (requestId !== snapshotRequestId) return
     replaySnapshot.value = snapshot
+    replayNextFrom.value = nextReplayRequestFrom(snapshot, project, requestedTo)
     const clamped = clampReplayCursor(project.cursorIndex, snapshot.candles.length)
     if (clamped !== project.cursorIndex) {
       updateProjectCursor(project.id, clamped)
@@ -378,6 +439,42 @@ async function loadReplaySnapshot(project: ReplayProject) {
   } finally {
     if (requestId === snapshotRequestId) {
       replayLoading.value = false
+    }
+  }
+}
+
+async function loadMoreReplay() {
+  const project = activeProject.value
+  const from = replayNextFrom.value
+  if (!project || from === null || from >= project.to || replayWindowLoading.value) return
+
+  const requestId = snapshotRequestId
+  const projectId = project.id
+  const requestedTo = replayWindowEnd(from, project.to, project.timeframe)
+  replayWindowLoading.value = true
+  replayWindowError.value = ''
+
+  try {
+    const snapshot = await getMarketSnapshot({
+      timeframe: project.timeframe,
+      from,
+      to: requestedTo,
+      limit: REPLAY_PAGE_SIZE,
+      lengths: replayLengths,
+    })
+    if (requestId !== snapshotRequestId || activeProject.value?.id !== projectId) return
+    replaySnapshot.value = replaySnapshot.value
+      ? mergeMarketSnapshots(replaySnapshot.value, snapshot)
+      : snapshot
+    replayNextFrom.value = nextReplayRequestFrom(snapshot, project, requestedTo)
+    setNotice(`按需加载了 ${snapshot.candles.length} 根 ${project.timeframe} K 线。`)
+  } catch (caught) {
+    if (requestId === snapshotRequestId && activeProject.value?.id === projectId) {
+      replayWindowError.value = caught instanceof Error ? caught.message : '更多行情加载失败。'
+    }
+  } finally {
+    if (requestId === snapshotRequestId && activeProject.value?.id === projectId) {
+      replayWindowLoading.value = false
     }
   }
 }
@@ -402,16 +499,21 @@ async function initialize() {
 
     projects.value = storedProjects
     const storedActive = loadActiveReplayProjectId()
-    activeProjectId.value = projects.value.some((project) => project.id === storedActive)
-      ? storedActive
-      : projects.value[0]?.id ?? ''
+    const storedActiveProject = projects.value.find((project) => project.id === storedActive) ?? projects.value[0]
+    const alignedActiveProject = storedActiveProject
+      ? alignProjectToMarket(storedActiveProject)
+      : { project: storedActiveProject, changed: false }
+    const active = alignedActiveProject.project
+    activeProjectId.value = active?.id ?? ''
     if (activeProjectId.value) {
       saveActiveReplayProjectId(activeProjectId.value)
     }
-    const active = activeProject.value ?? projects.value[0]
     if (active) {
       syncDraftFromProject(active)
       await loadReplaySnapshot(active)
+      if (alignedActiveProject.changed) {
+        setNotice('项目时间范围已调整到当前可用行情，旧区间交易记录已清除。')
+      }
     } else {
       activeView.value = 'projects'
       Object.assign(projectDraft, createReplayDraft(metadata.value))
@@ -460,6 +562,10 @@ watch([playbackPlaying, () => activeProject.value?.speed, () => activeProjectId.
     }
     const nextIndex = current.cursorIndex + 1
     if (nextIndex >= total) {
+      if (replayHasMore.value) {
+        void loadMoreReplay()
+        return
+      }
       pausePlayback()
       return
     }
@@ -793,6 +899,22 @@ onBeforeUnmount(() => {
                 />
                 <small>{{ currentProgressLabel }} · {{ currentTimeLabel }}</small>
               </label>
+
+              <div class="lazy-load-control" :aria-busy="replayWindowLoading" aria-live="polite">
+                <div class="lazy-load-copy">
+                  <span>行情窗口</span>
+                  <small>{{ replayWindowStatus }}</small>
+                </div>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="replayWindowLoading || !replayHasMore"
+                  @click="loadMoreReplay"
+                >
+                  <RefreshCw v-if="replayWindowLoading" :size="16" class="spinning" aria-hidden="true" />
+                  {{ replayWindowButtonLabel }}
+                </button>
+              </div>
             </div>
 
             <dl v-if="currentCandle" class="replay-candle-strip">
