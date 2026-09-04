@@ -21,6 +21,7 @@
   --chart-bg: #000000;
   --chart-border: #334155;
   --chart-text: #dbe4ee;
+  --chart-trendline: #facc15;
   --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 8px;
@@ -429,13 +430,28 @@ select {
   box-shadow: none;
 }
 
-.price-chart {
+.chart-stage {
+  position: relative;
   width: 100%;
-  min-height: 520px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   background: var(--chart-bg);
 }
 
-.chart-card-bare .price-chart,
+.chart-card:not(.chart-card-bare) .chart-stage {
+  min-height: 520px;
+}
+
+.price-chart {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--chart-bg);
+}
+
 .fullscreen-chart .chart-skeleton,
 .fullscreen-chart .empty-state {
   height: 100%;
@@ -452,6 +468,150 @@ select {
   border-color: var(--chart-border);
   background: var(--chart-bg);
   color: var(--chart-text);
+}
+
+.trendline-layer {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.trendline-layer.is-drawing {
+  cursor: crosshair;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.trendline-line {
+  fill: none;
+  stroke: var(--chart-trendline);
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.trendline-preview {
+  stroke-dasharray: 7 5;
+  opacity: 0.82;
+}
+
+.trendline-endpoint {
+  fill: var(--chart-bg);
+  stroke: var(--chart-trendline);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.trendline-anchor {
+  fill: var(--chart-trendline);
+}
+
+.chart-toolbox {
+  position: absolute;
+  z-index: 4;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(185, 180, 168, 0.9);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 36px rgba(17, 24, 39, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.chart-card-bare .chart-toolbox {
+  top: 68px;
+  right: auto;
+  left: 12px;
+}
+
+.chart-tool-button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, opacity 160ms ease, transform 160ms ease;
+}
+
+.chart-tool-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.chart-tool-button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.chart-tool-button small {
+  min-width: 18px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.1);
+  font: 700 10px/1 "Fira Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.chart-tool-button.active small {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.chart-tool-button.chart-tool-clear:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.chart-tool-button.chart-tool-cancel:hover:not(:disabled) {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.chart-tool-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.trendline-hint {
+  position: absolute;
+  z-index: 4;
+  top: 68px;
+  right: 12px;
+  max-width: min(420px, calc(100% - 24px));
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(250, 204, 21, 0.62);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.78);
+  color: #fef3c7;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.chart-card-bare .trendline-hint {
+  top: 120px;
+  right: auto;
+  left: 12px;
 }
 
 .fullscreen-chart .empty-state p {

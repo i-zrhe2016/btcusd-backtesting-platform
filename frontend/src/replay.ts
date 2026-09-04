@@ -26,6 +26,23 @@ export interface ManualTrade {
   createdAt: string
 }
 
+export interface TrendLinePoint {
+  timestamp: number
+  price: number
+}
+
+export interface TrendLine {
+  id: string
+  start: TrendLinePoint
+  end: TrendLinePoint
+  createdAt: string
+}
+
+export interface TrendLineInput {
+  start: TrendLinePoint
+  end: TrendLinePoint
+}
+
 export interface ManualTradeInput {
   side: ManualTradeSide
   candleIndex: number
@@ -55,6 +72,7 @@ export interface ReplayProject {
   cursorIndex: number
   cursorTimestamp?: number
   trades: ManualTrade[]
+  trendLines: TrendLine[]
   createdAt: string
   updatedAt: string
 }
@@ -190,6 +208,7 @@ export function reconcileReplayProject(project: ReplayProject, market: MarketMet
     cursorIndex: 0,
     cursorTimestamp: undefined,
     trades: [],
+    trendLines: [],
     updatedAt: nowIso(),
   }
 }
@@ -263,6 +282,7 @@ export function createReplayProjectFromDraft(
     cursorIndex: keepExistingState ? existing?.cursorIndex ?? 0 : 0,
     cursorTimestamp: keepExistingState ? existing?.cursorTimestamp : undefined,
     trades: keepExistingState ? existing?.trades ?? [] : [],
+    trendLines: keepExistingState ? existing?.trendLines ?? [] : [],
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
   }
@@ -297,6 +317,9 @@ export function normalizeReplayProject(raw: unknown): ReplayProject | null {
   const trades = Array.isArray(candidate.trades)
     ? sortManualTrades(candidate.trades.map(normalizeManualTrade).filter((trade): trade is ManualTrade => Boolean(trade)))
     : []
+  const trendLines = Array.isArray(candidate.trendLines)
+    ? candidate.trendLines.map(normalizeTrendLine).filter((line): line is TrendLine => Boolean(line))
+    : []
   const createdAt = typeof candidate.createdAt === 'string' ? candidate.createdAt : nowIso()
   const updatedAt = typeof candidate.updatedAt === 'string' ? candidate.updatedAt : createdAt
 
@@ -311,8 +334,60 @@ export function normalizeReplayProject(raw: unknown): ReplayProject | null {
     cursorIndex,
     cursorTimestamp,
     trades,
+    trendLines,
     createdAt,
     updatedAt,
+  }
+}
+
+function normalizeTrendLinePoint(raw: unknown): TrendLinePoint | null {
+  if (!raw || typeof raw !== 'object') return null
+  const candidate = raw as Partial<TrendLinePoint>
+  if (
+    typeof candidate.timestamp !== 'number' ||
+    typeof candidate.price !== 'number' ||
+    !Number.isFinite(candidate.timestamp) ||
+    !Number.isFinite(candidate.price) ||
+    candidate.price <= 0
+  ) {
+    return null
+  }
+  return {
+    timestamp: Math.floor(candidate.timestamp),
+    price: candidate.price,
+  }
+}
+
+function normalizeTrendLine(raw: unknown): TrendLine | null {
+  if (!raw || typeof raw !== 'object') return null
+  const candidate = raw as Partial<TrendLine>
+  const start = normalizeTrendLinePoint(candidate.start)
+  const end = normalizeTrendLinePoint(candidate.end)
+  if (
+    typeof candidate.id !== 'string' ||
+    !start ||
+    !end ||
+    start.timestamp === end.timestamp
+  ) {
+    return null
+  }
+  return {
+    id: candidate.id,
+    start,
+    end,
+    createdAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : nowIso(),
+  }
+}
+
+export function createTrendLine(input: TrendLineInput): TrendLine | null {
+  const start = normalizeTrendLinePoint(input.start)
+  const end = normalizeTrendLinePoint(input.end)
+  if (!start || !end || start.timestamp === end.timestamp) return null
+  return {
+    id: createId(),
+    start,
+    end,
+    createdAt: nowIso(),
   }
 }
 

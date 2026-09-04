@@ -3,6 +3,7 @@ import {
   applyManualTrade,
   clampReplayCursor,
   createReplayProjectFromDraft,
+  createTrendLine,
   loadReplayProjects,
   nextReplayWindowStart,
   reconcileReplayProject,
@@ -74,7 +75,40 @@ describe('replay helpers', () => {
       speed: 2,
       cursorIndex: 0,
       trades: [],
+      trendLines: [],
     })
+  })
+
+  it('persists trend lines and keeps them when the project settings stay unchanged', () => {
+    const storage = createMemoryStorage()
+    const project = createReplayProjectFromDraft({
+      name: 'Trend Replay',
+      symbol: 'BTCUSD',
+      timeframe: '1m',
+      fromInput: '2026-08-27T00:00',
+      toInput: '2026-08-27T01:00',
+      speed: 1,
+    })
+    const line = createTrendLine({
+      start: { timestamp: project.from + 60, price: 100 },
+      end: { timestamp: project.from + 300, price: 110 },
+    })
+    expect(line).not.toBeNull()
+    const projectWithLine = { ...project, trendLines: line ? [line] : [] }
+
+    saveReplayProjects([projectWithLine], storage)
+    const loaded = loadReplayProjects(storage)[0]
+    const edited = createReplayProjectFromDraft({
+      name: 'Trend Replay',
+      symbol: 'BTCUSD',
+      timeframe: '1m',
+      fromInput: '2026-08-27T00:00',
+      toInput: '2026-08-27T01:00',
+      speed: 1.5,
+    }, loaded)
+
+    expect(loaded.trendLines).toEqual([line])
+    expect(edited.trendLines).toEqual([line])
   })
 
   it('loads old replay projects without manual trades', () => {

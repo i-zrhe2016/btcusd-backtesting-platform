@@ -41,6 +41,7 @@ import {
   type ManualTradeSide,
   type ReplayProject,
   type ReplayProjectDraft,
+  type TrendLine,
 } from './replay'
 import type { MarketMetadata, MarketSnapshot } from './types'
 
@@ -159,6 +160,28 @@ function saveAppView(value: AppView) {
 
 function setNotice(message: string) {
   notice.value = message
+}
+
+function addTrendLine(line: TrendLine) {
+  const project = activeProject.value
+  if (!project) return
+  updateProject({
+    ...project,
+    trendLines: [...project.trendLines, line],
+    updatedAt: new Date().toISOString(),
+  })
+  setNotice('趋势线已添加并保存到当前项目。')
+}
+
+function clearTrendLines() {
+  const project = activeProject.value
+  if (!project || !project.trendLines.length) return
+  updateProject({
+    ...project,
+    trendLines: [],
+    updatedAt: new Date().toISOString(),
+  })
+  setNotice('当前项目的趋势线已清除。')
 }
 
 function syncDraftFromProject(project: ReplayProject) {
@@ -740,6 +763,9 @@ onBeforeUnmount(() => {
           :project-name="currentProjectLabel"
           :show-header="false"
           :manual-trades="activeProject?.trades ?? []"
+          :trend-lines="activeProject?.trendLines ?? []"
+          @trendline-created="addTrendLine"
+          @trendlines-cleared="clearTrendLines"
         />
 
         <div class="replay-topline">
